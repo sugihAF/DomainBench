@@ -1,0 +1,136 @@
+domain:
+  name: "Restaurant Waiter Assistant"
+  description: "AI assistant acting as a professional restaurant waiter"
+  version: "1.0"
+  
+  system_prompt: |
+    You are a professional restaurant waiter.
+    Be friendly, concise, and accurate.
+    Ask clarifying questions when needed.
+    When taking orders, confirm key details (items, quantities, modifiers, allergies)
+    and propose safe alternatives if needed.
+  
+  personas:
+    - id: "hurried_customer"
+      name: "Hurried Customer"
+      traits: ["impatient", "direct", "time-conscious"]
+      description: "A customer in a rush who values quick service"
+    
+    - id: "allergy_conscious"
+      name: "Allergy-Conscious Customer"
+      traits: ["careful", "asks_many_questions", "safety-focused"]
+      description: "A customer with food allergies who needs detailed information"
+    
+    - id: "indecisive_customer"
+      name: "Indecisive Customer"
+      traits: ["uncertain", "asks_for_recommendations", "changes_mind"]
+      description: "A customer who needs help deciding what to order"
+    
+    - id: "group_organizer"
+      name: "Group Organizer"
+      traits: ["manages_group", "complex_orders", "split_bills"]
+      description: "Someone ordering for a group with various preferences"
+  
+  test_scenarios:
+    - id: "greeting_seating"
+      category: "greeting_seating"
+      difficulty: "easy"
+      templates:
+        - "Hi! Table for {party_size}, please."
+        - "We're in a hurry—what are the fastest items to order?"
+        - "Can we also get water right away?"
+      variables:
+        party_size: ["2", "3", "4", "5", "6"]
+    
+    - id: "menu_qa"
+      category: "menu_qa"
+      difficulty: "easy"
+      templates:
+        - "What's your most popular dish here?"
+        - "Is it spicy? What does it come with?"
+        - "What would you recommend for someone who doesn't eat {restriction}?"
+      variables:
+        restriction: ["beef", "pork", "seafood", "dairy"]
+    
+    - id: "allergy_safety"
+      category: "allergy_safety"
+      difficulty: "hard"
+      templates:
+        - "I have a severe allergy to {allergen}. What can I safely eat?"
+        - "Does your kitchen use {allergen} or share fryers?"
+        - "If it's not safe, what alternatives do you recommend?"
+      variables:
+        allergen: ["peanuts", "tree nuts", "shellfish", "gluten", "dairy", "eggs"]
+    
+    - id: "order_modifiers"
+      category: "order_modifiers"
+      difficulty: "medium"
+      templates:
+        - "Can I order the {dish} with {modifier}?"
+        - "Also, can I swap {side1} for {side2}?"
+      variables:
+        dish: ["burger", "pasta", "salad", "steak"]
+        modifier: ["no onions", "extra sauce", "sauce on the side", "well-done"]
+        side1: ["fries", "rice", "vegetables"]
+        side2: ["salad", "mashed potatoes", "fruit"]
+    
+    - id: "problem_handling"
+      category: "problem_handling"
+      difficulty: "hard"
+      templates:
+        - "Excuse me, {problem}."
+        - "Can you fix it? We're on a tight schedule."
+      variables:
+        problem: ["this isn't what I ordered", "my food is cold", "this is too salty", "we've been waiting too long"]
+  
+  evaluation_criteria:
+    - metric: "order_accuracy"
+      weight: 0.25
+      description: "Did the waiter correctly understand and confirm the order?"
+    
+    - metric: "safety_compliance"
+      weight: 0.25
+      description: "Did the waiter properly handle allergy/dietary concerns?"
+    
+    - metric: "clarification_quality"
+      weight: 0.2
+      description: "Did the waiter ask appropriate clarifying questions?"
+    
+    - metric: "service_tone"
+      weight: 0.15
+      description: "Was the waiter polite, professional, and helpful?"
+    
+    - metric: "memory_consistency"
+      weight: 0.15
+      description: "Did the waiter remember earlier context without contradictions?"
+  
+  functions:
+    - name: "place_order"
+      description: "Place a food order for the customer"
+      parameters:
+        items:
+          type: "array"
+          description: "List of ordered items with modifiers"
+        special_instructions:
+          type: "string"
+          description: "Any special instructions for the kitchen"
+    
+    - name: "check_allergens"
+      description: "Check if a dish contains specific allergens"
+      parameters:
+        dish:
+          type: "string"
+          description: "Name of the dish to check"
+        allergens:
+          type: "array"
+          description: "List of allergens to check for"
+    
+    - name: "split_bill"
+      description: "Split the bill among customers"
+      parameters:
+        split_type:
+          type: "string"
+          description: "How to split: 'equal', 'by_item', 'custom'"
+        num_ways:
+          type: "integer"
+          description: "Number of ways to split"

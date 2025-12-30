@@ -1,0 +1,54 @@
+# Example Benchmark Configuration
+# This file shows all available options
+
+benchmark:
+  name: "GPT-4o vs Gemini Flash - Restaurant Waiter"
+  description: "Comparing model performance on restaurant service scenarios"
+  
+  # Models to compare (exactly 2 required for now)
+  models:
+    - provider: openai
+      model: gpt-4o
+      alias: "GPT-4o"
+      temperature: 0.2
+      max_tokens: 1000
+      # api_key_env: OPENAI_API_KEY  # Optional, uses default
+      
+    - provider: gemini
+      model: gemini-2.0-flash
+      alias: "Gemini Flash"
+      temperature: 0.2
+      max_tokens: 1000
+      # api_key_env: GEMINI_API_KEY  # Optional, uses default
+  
+  # Capabilities to test
+  capabilities:
+    - chat_completion
+    # - function_calling    # Coming soon
+    # - structured_output   # Coming soon
+  
+  # Domain name (built-in) or path to domain.yaml
+  domain: restaurant_waiter
+  
+  # Judge configuration
+  judge:
+    provider: openai
+    model: gpt-4o
+    temperature: 0.0
+  
+  # Benchmark settings
+  settings:
+    runs_per_test: 1           # Run each test N times
+    parallel_execution: false  # Not yet supported
+    save_raw_responses: true   # Include full responses in results
+    seed: 42                   # For reproducibility
+    sleep_between_calls: 0.2   # Seconds between API calls
+    max_items: null            # Limit test cases (null = all)
+  
+  # Output configuration
+  output:
+    formats:
+      - json
+      - markdown
+    directory: "./results"
+    include_raw_responses: true
