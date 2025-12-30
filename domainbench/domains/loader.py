@@ -31,12 +31,18 @@ def list_builtin_domains() -> List[Dict[str, str]]:
                 with open(config_file, 'r', encoding='utf-8') as f:
                     data = yaml.safe_load(f)
                 
-                if 'domain' in data:
+                # Handle nested 'domain' key (only if it's a dict)
+                if 'domain' in data and isinstance(data['domain'], dict):
                     data = data['domain']
+                
+                # Get description from various possible keys
+                description = ""
+                if isinstance(data, dict):
+                    description = data.get("description", "")
                 
                 domains.append({
                     "name": domain_dir.name,
-                    "description": data.get("description", ""),
+                    "description": description,
                 })
     
     return domains

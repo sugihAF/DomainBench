@@ -43,7 +43,12 @@ class OpenAIProvider(BaseProvider):
         }
         
         if max_tokens is not None:
-            request_kwargs["max_tokens"] = max_tokens
+            # Newer models (gpt-4.1+, gpt-5+, o1, o3) use max_completion_tokens
+            # Older models use max_tokens
+            if any(model.startswith(prefix) for prefix in ["gpt-4.1", "gpt-5", "o1", "o3"]):
+                request_kwargs["max_completion_tokens"] = max_tokens
+            else:
+                request_kwargs["max_tokens"] = max_tokens
         
         # Add any additional kwargs
         request_kwargs.update(kwargs)

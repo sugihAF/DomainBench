@@ -7,10 +7,8 @@ from domainbench.providers.openai_provider import OpenAIProvider
 from domainbench.providers.gemini_provider import GeminiProvider
 from domainbench.providers.anthropic_provider import AnthropicProvider
 
-from domainbench.core.config import ModelConfig, ProviderType
 
-
-def get_provider(config: ModelConfig) -> BaseProvider:
+def get_provider(config) -> BaseProvider:
     """
     Factory function to get the appropriate provider for a model config.
     
@@ -20,6 +18,9 @@ def get_provider(config: ModelConfig) -> BaseProvider:
     Returns:
         Initialized provider instance
     """
+    # Import here to avoid circular imports
+    from domainbench.core.config import ProviderType
+    
     provider_map = {
         ProviderType.OPENAI: OpenAIProvider,
         ProviderType.GEMINI: GeminiProvider,

@@ -134,6 +134,91 @@ def run(
         raise typer.Exit(1)
 
 
+@app.command("create-domain")
+def create_domain(
+    description: str = typer.Argument(
+        ...,
+        help="Description of the domain to create (e.g., 'doctor assistant', 'banking customer service')"
+    ),
+    provider: str = typer.Option(
+        "openai", "--provider", "-p",
+        help="LLM provider to use for generation (openai, anthropic, gemini)"
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model", "-m",
+        help="Model to use for generation (default: gpt-5.2-2025-12-11)"
+    ),
+    output_dir: Optional[Path] = typer.Option(
+        None, "--output-dir", "-o",
+        help="Custom output directory (default: builtin domains)"
+    ),
+):
+    """
+    Create a new domain using AI.
+    
+    This command uses an LLM to generate a complete domain definition including
+    domain.yaml and generator.py based on your description.
+    
+    Examples:
+        domainbench create-domain "doctor assistant"
+        domainbench create-domain "banking customer service" --provider anthropic --model claude-sonnet-4-20250514
+        domainbench create-domain "tech support agent" -o ./my_domains
+    """
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    from domainbench.domains.creator import (
+        create_domain_with_ai, 
+        validate_generated_domain,
+        list_domain_categories,
+        DEFAULT_CREATOR_MODEL,
+    )
+    
+    # Use default model if not specified
+    if model is None:
+        model = DEFAULT_CREATOR_MODEL
+    
+    console.print(f"\n[bold]Creating domain: {description}[/bold]")
+    console.print(f"Using: {provider}/{model}\n")
+    
+    try:
+        with console.status("[bold green]Generating domain files..."):
+            domain_path, domain_slug = create_domain_with_ai(
+                domain_description=description,
+                provider=provider,
+                model=model,
+                output_dir=output_dir,
+            )
+        
+        console.print(f"[green]✓[/green] Domain files created at: {domain_path}")
+        
+        # Validate the generated domain
+        console.print("\n[dim]Validating generated files...[/dim]")
+        is_valid, error = validate_generated_domain(domain_path)
+        
+        if is_valid:
+            console.print(f"[green]✓[/green] Validation passed!")
+            
+            # Show categories
+            categories = list_domain_categories(domain_slug)
+            if categories:
+                console.print(f"\n[bold]Generated categories ({len(categories)}):[/bold]")
+                for cat in categories:
+                    console.print(f"  • {cat}")
+            
+            console.print(f"\n[bold green]Domain '{domain_slug}' is ready to use![/bold green]")
+            console.print(f"\nNext steps:")
+            console.print(f"  1. Generate test cases: [cyan]domainbench generate -d {domain_slug} -n 100 -o dataset.jsonl[/cyan]")
+            console.print(f"  2. Run benchmark: [cyan]domainbench run -d dataset.jsonl -m openai/gpt-4o -m gemini/gemini-2.0-flash --domain {domain_slug}[/cyan]")
+        else:
+            console.print(f"[yellow]⚠[/yellow] Validation warning: {error}")
+            console.print(f"The domain was created but may need manual fixes at: {domain_path}")
+            
+    except Exception as e:
+        console.print(f"\n[red]Error creating domain: {e}[/red]")
+        raise typer.Exit(1)
+
+
 @app.command()
 def generate(
     domain: str = typer.Option(
@@ -158,6 +243,7 @@ def generate(
     
     Example:
         domainbench generate -d restaurant_waiter -n 100 -o waiterbench.jsonl
+        domainbench generate -d doctor_assistant -n 50 -o doctor_test.jsonl
     """
     import json
     
@@ -166,13 +252,47 @@ def generate(
     console.print(f"Count: {count}")
     console.print(f"Seed: {seed}")
     
-    # Currently only restaurant_waiter has a generator
-    if domain == "restaurant_waiter":
-        from domainbench.domains.builtin.restaurant_waiter import generate_test_cases
-        items = generate_test_cases(count, seed)
+    # Dynamically load generator from domain
+    items = None
+    
+    # Check for generator in the domain folder
+    from pathlib import Path as PathLib
+    from domainbench.domains.loader import BUILTIN_DOMAINS_DIR
+    
+    # Try builtin domain first
+    domain_path = BUILTIN_DOMAINS_DIR / domain
+    generator_path = domain_path / "generator.py"
+    
+    # Also check if domain is a path
+    if not generator_path.exists():
+        domain_as_path = PathLib(domain)
+        if domain_as_path.exists():
+            if domain_as_path.is_dir():
+                generator_path = domain_as_path / "generator.py"
+            else:
+                generator_path = domain_as_path.parent / "generator.py"
+    
+    if generator_path.exists():
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("generator", generator_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            if hasattr(module, 'generate_test_cases'):
+                items = module.generate_test_cases(count, seed)
+                console.print(f"[dim]Loaded generator from: {generator_path}[/dim]")
+            else:
+                console.print(f"[red]Generator found but missing generate_test_cases function[/red]")
+                raise typer.Exit(1)
+        except Exception as e:
+            console.print(f"[red]Error loading generator: {e}[/red]")
+            raise typer.Exit(1)
     else:
         console.print(f"[red]No generator available for domain: {domain}[/red]")
-        console.print("Currently supported: restaurant_waiter")
+        console.print(f"[dim]Looked for: {generator_path}[/dim]")
+        console.print("\nTo create a new domain with AI, use:")
+        console.print(f"  [cyan]domainbench create-domain \"{domain}\"[/cyan]")
         raise typer.Exit(1)
     
     # Write to file
