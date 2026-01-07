@@ -174,3 +174,67 @@ class OpenAIProvider(BaseProvider):
             "usage": usage,
             "raw": response,
         }
+    
+    def vision(
+        self,
+        model: str,
+        messages: List[Dict[str, Any]],
+        images: List[str] = None,
+        temperature: float = 0.2,
+        max_tokens: Optional[int] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """
+        Send a vision request with images.
+        
+        OpenAI's chat completion API natively handles vision - messages
+        can include image_url content directly. This method also supports
+        passing images as a separate list.
+        
+        Args:
+            model: Model identifier (e.g., gpt-4o, gpt-4-vision-preview)
+            messages: List of message dicts (may include image_url content)
+            images: Optional list of image URLs or base64 data to append
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens in response
+            **kwargs: Additional options
+            
+        Returns:
+            Dict with text response
+        """
+        # If images are passed separately, add them to the last user message
+        if images:
+            # Find the last user message or create one
+            user_msg_idx = None
+            for i in range(len(messages) - 1, -1, -1):
+                if messages[i].get("role") == "user":
+                    user_msg_idx = i
+                    break
+            
+            if user_msg_idx is not None:
+                msg = messages[user_msg_idx]
+                content = msg.get("content", "")
+                
+                # Convert to list format if it's a string
+                if isinstance(content, str):
+                    content = [{"type": "text", "text": content}]
+                elif not isinstance(content, list):
+                    content = [{"type": "text", "text": str(content)}]
+                
+                # Add images
+                for image in images:
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {"url": image}
+                    })
+                
+                messages[user_msg_idx]["content"] = content
+        
+        # Use chat_completion which handles vision messages natively
+        return self.chat_completion(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        )

@@ -69,7 +69,8 @@ domainbench compare results/results_*.json
 
 | Command | Description |
 |---------|-------------|
-| `domainbench run` | Run a benchmark comparing models |
+| `domainbench run` | Run a chat benchmark comparing models |
+| `domainbench run-ocr` | Run an OCR/vision extraction benchmark |
 | `domainbench generate` | Generate test cases for a domain |
 | `domainbench create-domain` | Create a new domain using AI |
 | `domainbench domains` | List available domains |
@@ -220,12 +221,56 @@ This framework uses an **MT-Bench style** approach:
             Winner: A / B / Tie + Scores
 ```
 
+## OCR/Vision Benchmark
+
+Benchmark vision models on structured data extraction tasks (menus, receipts, documents).
+
+### Single Model Evaluation
+
+Evaluate one model against ground truth:
+
+```bash
+domainbench run-ocr -d menu_dataset.jsonl -m openai/gpt-4o
+```
+
+### Two Model Comparison
+
+Compare two models head-to-head:
+
+```bash
+domainbench run-ocr -d menu_dataset.jsonl -m openai/gpt-4o -m gemini/gemini-2.0-flash
+```
+
+### OCR Options
+
+| Option | Description |
+|--------|-------------|
+| `-d, --dataset` | JSONL file with image paths and ground truth |
+| `-m, --models` | 1 model (single eval) or 2 models (comparison) |
+| `-s, --schema` | Schema type: `menu`, `receipt`, `document` |
+| `-t, --threshold` | Fuzzy match threshold (default: 0.7) |
+| `--max-items` | Limit number of test cases |
+
+### Dataset Format
+
+```json
+{"id": "001", "image_path": "menu.png", "ground_truth": {"items": [...], "categories": [...]}}
+{"id": "002", "image_paths": ["page1.png", "page2.png"], "ground_truth": {...}}
+```
+
+### Evaluation Metrics
+
+- **Precision**: % of extracted items that are correct
+- **Recall**: % of ground truth items found
+- **F1 Score**: Harmonic mean of precision and recall
+- Uses fuzzy text matching (configurable threshold)
+
 ## Roadmap
 
 - [x] Chat completion benchmark
+- [x] Vision/OCR benchmark
 - [ ] Function calling benchmark
 - [ ] Structured output benchmark
-- [ ] Vision/OCR benchmark
 - [ ] Code execution benchmark
 - [ ] Web dashboard
 - [ ] More built-in domains

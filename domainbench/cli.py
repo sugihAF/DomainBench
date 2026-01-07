@@ -407,6 +407,339 @@ def capabilities():
     console.print(table)
 
 
+@app.command("run-ocr")
+def run_ocr(
+    dataset: Path = typer.Option(
+        ..., "--dataset", "-d",
+        help="Path to dataset JSONL file with image paths and ground truth"
+    ),
+    models: List[str] = typer.Option(
+        ..., "--models", "-m",
+        help="Model(s) to benchmark (format: provider/model). Use 1 for single eval, 2 for comparison."
+    ),
+    schema_type: str = typer.Option(
+        "menu", "--schema", "-s",
+        help="Extraction schema type: menu, receipt, document, or custom"
+    ),
+    output: Path = typer.Option(
+        Path("./results"), "--output", "-o",
+        help="Output directory for results"
+    ),
+    max_items: Optional[int] = typer.Option(
+        None, "--max-items",
+        help="Maximum number of test cases to run"
+    ),
+    threshold: float = typer.Option(
+        0.7, "--threshold", "-t",
+        help="Fuzzy match threshold for accuracy (0.0-1.0)"
+    ),
+    verbose: bool = typer.Option(
+        True, "--verbose/--quiet", "-v/-q",
+        help="Show detailed progress"
+    ),
+):
+    """
+    Run an OCR/Vision extraction benchmark.
+    
+    Supports single model evaluation or two model comparison.
+    Uses fuzzy matching against ground truth (not LLM-as-Judge).
+    
+    Dataset JSONL format:
+        {"id": "001", "image_path": "menu.png", "ground_truth": {...}}
+        {"id": "002", "image_paths": ["p1.png", "p2.png"], "ground_truth": {...}}
+    
+    Examples:
+        # Single model evaluation
+        domainbench run-ocr -d menu_dataset.jsonl -m openai/gpt-4o
+        
+        # Two model comparison
+        domainbench run-ocr -d menu_dataset.jsonl -m openai/gpt-4o -m gemini/gemini-2.0-flash
+        
+        # With custom threshold
+        domainbench run-ocr -d receipts.jsonl -m openai/gpt-4o --schema receipt --threshold 0.8
+    """
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    import json
+    import time
+    from datetime import datetime
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+    from rich.table import Table
+    
+    from domainbench.core.config import ModelConfig, ProviderType
+    from domainbench.providers import get_provider
+    from domainbench.capabilities.ocr import (
+        OCRCapability, 
+        get_schema_config,
+    )
+    
+    # Validate model count
+    if len(models) < 1 or len(models) > 2:
+        console.print("[red]Error: Provide 1 model (single eval) or 2 models (comparison)[/red]")
+        raise typer.Exit(1)
+    
+    is_comparison = len(models) == 2
+    
+    # Parse model specs
+    model_configs = []
+    providers = {}
+    
+    for model_spec in models:
+        parts = model_spec.split("/", 1)
+        if len(parts) != 2:
+            console.print(f"[red]Invalid model spec: {model_spec}[/red]")
+            console.print("Expected format: provider/model (e.g., openai/gpt-4o)")
+            raise typer.Exit(1)
+        
+        provider_str, model_name = parts
+        try:
+            provider_type = ProviderType(provider_str.lower())
+        except ValueError:
+            console.print(f"[red]Unknown provider: {provider_str}[/red]")
+            console.print(f"Available: {[p.value for p in ProviderType]}")
+            raise typer.Exit(1)
+        
+        model_config = ModelConfig(
+            provider=provider_type,
+            model=model_name,
+            alias=f"{provider_str}/{model_name}",
+        )
+        model_configs.append(model_config)
+        
+        # Initialize provider
+        provider = get_provider(model_config)
+        providers[model_config.display_name] = provider
+    
+    # Load dataset
+    if not dataset.exists():
+        console.print(f"[red]Dataset not found: {dataset}[/red]")
+        raise typer.Exit(1)
+    
+    with open(dataset, 'r', encoding='utf-8') as f:
+        test_cases = [json.loads(line) for line in f if line.strip()]
+    
+    if max_items:
+        test_cases = test_cases[:max_items]
+    
+    # Get schema config
+    schema_config = get_schema_config(schema_type)
+    schema_config["threshold"] = threshold
+    
+    # Initialize capability
+    capability = OCRCapability(schema_config=schema_config)
+    
+    # Print header
+    console.print(f"\n[bold blue]DomainBench OCR Benchmark[/bold blue]")
+    console.print(f"Mode: {'Comparison' if is_comparison else 'Single Model Evaluation'}")
+    console.print(f"Dataset: {dataset} ({len(test_cases)} items)")
+    console.print(f"Models: {', '.join([m.display_name for m in model_configs])}")
+    console.print(f"Schema: {schema_type} (threshold: {threshold})")
+    console.print()
+    
+    # Results storage
+    results = []
+    model_metrics = {m.display_name: {"scores": [], "total_time": 0} for m in model_configs}
+    
+    if is_comparison:
+        comparison_stats = {"A_wins": 0, "B_wins": 0, "ties": 0}
+    
+    # Run benchmark
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        console=console,
+        disable=not verbose,
+    ) as progress:
+        task = progress.add_task("Running OCR benchmark...", total=len(test_cases))
+        
+        for idx, test_case in enumerate(test_cases):
+            case_id = test_case.get("id", f"case_{idx}")
+            ground_truth = test_case.get("ground_truth", {})
+            
+            # Build messages with images
+            messages = capability.build_messages(test_case, system_prompt="")
+            
+            responses = {}
+            
+            # Get response from each model
+            for model_config in model_configs:
+                provider = providers[model_config.display_name]
+                
+                start_time = time.time()
+                try:
+                    response = provider.chat_completion(
+                        model=model_config.model,
+                        messages=messages,
+                        temperature=0.1,
+                        max_tokens=4096,
+                    )
+                    response_text = response.get("content", "")
+                except Exception as e:
+                    console.print(f"[yellow]Warning: {model_config.display_name} failed on {case_id}: {e}[/yellow]")
+                    response_text = "{}"
+                
+                elapsed = (time.time() - start_time) * 1000  # ms
+                model_metrics[model_config.display_name]["total_time"] += elapsed
+                responses[model_config.display_name] = response_text
+            
+            # Evaluate
+            if is_comparison:
+                model_a = model_configs[0].display_name
+                model_b = model_configs[1].display_name
+                
+                eval_result = capability.evaluate_pair(
+                    response_a=responses[model_a],
+                    response_b=responses[model_b],
+                    ground_truth=ground_truth,
+                    schema_config=schema_config,
+                )
+                
+                # Track wins
+                winner = eval_result["winner"]
+                if winner == "A":
+                    comparison_stats["A_wins"] += 1
+                elif winner == "B":
+                    comparison_stats["B_wins"] += 1
+                else:
+                    comparison_stats["ties"] += 1
+                
+                model_metrics[model_a]["scores"].append(eval_result["score_A"])
+                model_metrics[model_b]["scores"].append(eval_result["score_B"])
+                
+                result = {
+                    "test_id": case_id,
+                    "winner": winner,
+                    "scores": {model_a: eval_result["score_A"], model_b: eval_result["score_B"]},
+                    "reasons": eval_result.get("reasons", []),
+                }
+            else:
+                # Single model evaluation
+                model_name = model_configs[0].display_name
+                eval_result = capability.evaluate_single(
+                    response=responses[model_name],
+                    ground_truth=ground_truth,
+                    schema_config=schema_config,
+                )
+                
+                model_metrics[model_name]["scores"].append(eval_result["overall_score"])
+                
+                result = {
+                    "test_id": case_id,
+                    "score": eval_result["overall_score"],
+                    "metrics": eval_result["metrics"],
+                }
+            
+            results.append(result)
+            progress.update(task, advance=1)
+    
+    # Calculate summary statistics
+    console.print("\n[bold]Results Summary[/bold]")
+    console.print("-" * 50)
+    
+    summary_table = Table(title="Model Performance")
+    summary_table.add_column("Model", style="cyan")
+    summary_table.add_column("Avg F1 Score", justify="right")
+    summary_table.add_column("Min", justify="right")
+    summary_table.add_column("Max", justify="right")
+    summary_table.add_column("Avg Time (ms)", justify="right")
+    
+    for model_config in model_configs:
+        name = model_config.display_name
+        scores = model_metrics[name]["scores"]
+        avg_score = sum(scores) / len(scores) if scores else 0
+        min_score = min(scores) if scores else 0
+        max_score = max(scores) if scores else 0
+        avg_time = model_metrics[name]["total_time"] / len(test_cases)
+        
+        summary_table.add_row(
+            name,
+            f"{avg_score:.1f}%",
+            f"{min_score:.1f}%",
+            f"{max_score:.1f}%",
+            f"{avg_time:.0f}",
+        )
+    
+    console.print(summary_table)
+    
+    # Print comparison results
+    if is_comparison:
+        console.print()
+        winner_table = Table(title="Head-to-Head Comparison")
+        winner_table.add_column("Model", style="cyan")
+        winner_table.add_column("Wins", justify="right", style="green")
+        winner_table.add_column("Losses", justify="right", style="red")
+        winner_table.add_column("Ties", justify="right")
+        
+        model_a_name = model_configs[0].display_name
+        model_b_name = model_configs[1].display_name
+        
+        winner_table.add_row(
+            model_a_name,
+            str(comparison_stats["A_wins"]),
+            str(comparison_stats["B_wins"]),
+            str(comparison_stats["ties"]),
+        )
+        winner_table.add_row(
+            model_b_name,
+            str(comparison_stats["B_wins"]),
+            str(comparison_stats["A_wins"]),
+            str(comparison_stats["ties"]),
+        )
+        
+        console.print(winner_table)
+        
+        # Determine overall winner
+        if comparison_stats["A_wins"] > comparison_stats["B_wins"]:
+            overall_winner = model_a_name
+        elif comparison_stats["B_wins"] > comparison_stats["A_wins"]:
+            overall_winner = model_b_name
+        else:
+            overall_winner = "TIE"
+        
+        console.print(f"\n[bold]Overall Winner: [green]{overall_winner}[/green][/bold]")
+    
+    # Save results
+    output.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = output / f"ocr_results_{timestamp}.json"
+    
+    full_results = {
+        "benchmark_type": "ocr",
+        "timestamp": datetime.now().isoformat(),
+        "config": {
+            "models": [m.display_name for m in model_configs],
+            "schema_type": schema_type,
+            "threshold": threshold,
+            "dataset": str(dataset),
+            "test_count": len(test_cases),
+        },
+        "summary": {
+            "model_metrics": {
+                name: {
+                    "avg_score": sum(data["scores"]) / len(data["scores"]) if data["scores"] else 0,
+                    "min_score": min(data["scores"]) if data["scores"] else 0,
+                    "max_score": max(data["scores"]) if data["scores"] else 0,
+                    "total_time_ms": data["total_time"],
+                }
+                for name, data in model_metrics.items()
+            },
+        },
+        "results": results,
+    }
+    
+    if is_comparison:
+        full_results["summary"]["comparison"] = comparison_stats
+        full_results["summary"]["overall_winner"] = overall_winner
+    
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(full_results, f, indent=2, ensure_ascii=False)
+    
+    console.print(f"\n[green]Results saved to: {output_file}[/green]")
+
+
 @app.command()
 def compare(
     results: List[Path] = typer.Argument(
