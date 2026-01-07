@@ -9,7 +9,18 @@ from rich.console import Console
 
 app = typer.Typer(
     name="domainbench",
-    help="DomainBench - LLM Benchmarking Framework",
+    help="""DomainBench - LLM Benchmarking Framework
+
+Supported Providers & Models:
+
+  OpenAI:     gpt-4o, gpt-4.1, gpt-5, gpt-5.2, o1, o3, o4-mini
+  
+  Gemini:     gemini-2.0-flash, gemini-2.5-pro, gemini-3-flash, gemini-3-pro
+  
+  Anthropic:  claude-3-5-sonnet, claude-sonnet-4, claude-4.5-opus/sonnet/haiku
+
+Model format: provider/model (e.g., openai/gpt-5.2, gemini/gemini-3-flash)
+""",
     add_completion=False,
 )
 
@@ -50,8 +61,12 @@ def run(
     """
     Run a benchmark comparing LLM models.
     
-    Example:
-        domainbench run -d waiterbench.jsonl -m openai/gpt-4o -m gemini/gemini-2.0-flash
+    Supported model formats: provider/model
+    
+    Examples:
+        domainbench run -d dataset.jsonl -m openai/gpt-5.2 -m gemini/gemini-3-flash
+        domainbench run -d dataset.jsonl -m openai/gpt-4o -m anthropic/claude-4.5-sonnet
+        domainbench run -d dataset.jsonl -m gemini/gemini-3-pro -m anthropic/claude-4.5-opus
     """
     from dotenv import load_dotenv
     load_dotenv()
@@ -159,10 +174,13 @@ def create_domain(
     This command uses an LLM to generate a complete domain definition including
     domain.yaml and generator.py based on your description.
     
+    Supported providers: openai, anthropic, gemini
+    
     Examples:
         domainbench create-domain "doctor assistant"
-        domainbench create-domain "banking customer service" --provider anthropic --model claude-sonnet-4-20250514
-        domainbench create-domain "tech support agent" -o ./my_domains
+        domainbench create-domain "banking customer service" --provider anthropic --model claude-4.5-sonnet
+        domainbench create-domain "tech support agent" --provider gemini --model gemini-3-pro
+        domainbench create-domain "legal advisor" --provider openai --model gpt-5.2
     """
     from dotenv import load_dotenv
     load_dotenv()
@@ -209,7 +227,7 @@ def create_domain(
             console.print(f"\n[bold green]Domain '{domain_slug}' is ready to use![/bold green]")
             console.print(f"\nNext steps:")
             console.print(f"  1. Generate test cases: [cyan]domainbench generate -d {domain_slug} -n 100 -o dataset.jsonl[/cyan]")
-            console.print(f"  2. Run benchmark: [cyan]domainbench run -d dataset.jsonl -m openai/gpt-4o -m gemini/gemini-2.0-flash --domain {domain_slug}[/cyan]")
+            console.print(f"  2. Run benchmark: [cyan]domainbench run -d dataset.jsonl -m openai/gpt-5.2 -m gemini/gemini-3-flash --domain {domain_slug}[/cyan]")
         else:
             console.print(f"[yellow]⚠[/yellow] Validation warning: {error}")
             console.print(f"The domain was created but may need manual fixes at: {domain_path}")
@@ -345,7 +363,7 @@ def convert(
         
         console.print(f"\n[green]✓ Converted {count} test cases to: {output_path}[/green]")
         console.print(f"\nNext steps:")
-        console.print(f"  Run benchmark: [cyan]domainbench run -d {output_path} -m openai/gpt-4o -m gemini/gemini-2.0-flash[/cyan]")
+        console.print(f"  Run benchmark: [cyan]domainbench run -d {output_path} -m openai/gpt-5.2 -m anthropic/claude-4.5-sonnet[/cyan]")
         
     except Exception as e:
         console.print(f"\n[red]Error converting file: {e}[/red]")
@@ -405,10 +423,11 @@ def compare(
     ),
 ):
     """
-    Compare benchmark results.
+    Compare benchmark results from multiple benchmark runs.
     
-    Example:
+    Examples:
         domainbench compare results1.json results2.json
+        domainbench compare gpt5_vs_gemini3.json claude45_vs_gpt5.json -f markdown
     """
     import json
     from rich.table import Table

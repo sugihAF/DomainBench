@@ -1,6 +1,12 @@
 """
 OpenAI provider adapter
 Based on the OpenAIChat class from waiterbench.py
+
+Supported models include:
+- GPT-4 series: gpt-4, gpt-4-turbo, gpt-4o, gpt-4o-mini
+- GPT-4.1 series: gpt-4.1, gpt-4.1-mini, gpt-4.1-nano
+- GPT-5 series: gpt-5, gpt-5-mini, gpt-5.2, gpt-5.2-mini
+- O-series (reasoning): o1, o1-mini, o1-pro, o3, o3-mini, o4-mini
 """
 
 from typing import List, Dict, Any, Optional
@@ -8,7 +14,12 @@ from domainbench.providers.base import BaseProvider
 
 
 class OpenAIProvider(BaseProvider):
-    """Provider adapter for OpenAI API"""
+    """Provider adapter for OpenAI API
+    
+    Automatically handles parameter differences between model generations:
+    - Newer models (gpt-4.1+, gpt-5+, o1, o3, o4) use max_completion_tokens
+    - Older models use max_tokens
+    """
     
     name = "openai"
     supported_features = ["chat_completion", "function_calling", "structured_output", "vision"]
@@ -43,9 +54,10 @@ class OpenAIProvider(BaseProvider):
         }
         
         if max_tokens is not None:
-            # Newer models (gpt-4.1+, gpt-5+, o1, o3) use max_completion_tokens
-            # Older models use max_tokens
-            if any(model.startswith(prefix) for prefix in ["gpt-4.1", "gpt-5", "o1", "o3"]):
+            # Newer models (gpt-4.1+, gpt-5+, o-series) use max_completion_tokens
+            # Older models (gpt-4, gpt-4-turbo, gpt-4o) use max_tokens
+            newer_model_prefixes = ["gpt-4.1", "gpt-5", "o1", "o3", "o4"]
+            if any(model.startswith(prefix) for prefix in newer_model_prefixes):
                 request_kwargs["max_completion_tokens"] = max_tokens
             else:
                 request_kwargs["max_tokens"] = max_tokens

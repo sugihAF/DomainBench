@@ -1,6 +1,17 @@
 """
 Google Gemini provider adapter
 Based on the GeminiChat class from waiterbench.py
+
+Supported models include:
+- Gemini 3 series: gemini-3-pro, gemini-3-flash
+- Gemini 2.5 series: gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite
+- Gemini 2.0 series: gemini-2.0-flash, gemini-2.0-flash-lite
+- Legacy: gemini-1.5-pro, gemini-1.5-flash
+
+Model naming patterns:
+- Stable: gemini-3-flash, gemini-2.5-pro
+- Preview: gemini-3-flash-preview-01-2026
+- Latest: gemini-flash-latest
 """
 
 from typing import List, Dict, Any, Optional
@@ -8,7 +19,10 @@ from domainbench.providers.base import BaseProvider
 
 
 class GeminiProvider(BaseProvider):
-    """Provider adapter for Google Gemini API"""
+    """Provider adapter for Google Gemini API
+    
+    Supports all Gemini model versions including Gemini 3 Pro and Flash.
+    """
     
     name = "gemini"
     supported_features = ["chat_completion"]

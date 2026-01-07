@@ -1,5 +1,13 @@
 """
 Anthropic Claude provider adapter
+
+Supported models include:
+- Claude 4.5 series: claude-4.5-opus, claude-4.5-sonnet, claude-4.5-haiku
+- Claude 4 series: claude-opus-4, claude-sonnet-4, claude-sonnet-4-20250514
+- Claude 3.5 series: claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022
+- Claude 3 series: claude-3-opus-20240229, claude-3-sonnet-20240229, claude-3-haiku-20240307
+
+Note: Model names may include date suffixes for specific versions.
 """
 
 from typing import List, Dict, Any, Optional
@@ -7,7 +15,10 @@ from domainbench.providers.base import BaseProvider
 
 
 class AnthropicProvider(BaseProvider):
-    """Provider adapter for Anthropic Claude API"""
+    """Provider adapter for Anthropic Claude API
+    
+    Supports all Claude model versions including Claude 4.5 (Opus, Sonnet, Haiku).
+    """
     
     name = "anthropic"
     supported_features = ["chat_completion", "function_calling", "vision"]
