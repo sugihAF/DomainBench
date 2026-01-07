@@ -305,6 +305,54 @@ def generate(
 
 
 @app.command()
+def convert(
+    input_file: Path = typer.Argument(
+        ...,
+        help="Input file path (YAML or CSV format)"
+    ),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o",
+        help="Output JSONL file path (auto-generated if not provided)"
+    ),
+):
+    """
+    Convert test cases from YAML or CSV to JSONL format.
+    
+    This allows you to create test cases in a more user-friendly format
+    and convert them for use with the benchmark engine.
+    
+    Examples:
+        domainbench convert test_cases.yaml
+        domainbench convert test_cases.csv -o dataset.jsonl
+    
+    See examples/templates/ for template files with documentation.
+    """
+    from domainbench.domains.converter import convert_to_jsonl, detect_format
+    
+    if not input_file.exists():
+        console.print(f"[red]Error: File not found: {input_file}[/red]")
+        raise typer.Exit(1)
+    
+    try:
+        format_type = detect_format(str(input_file))
+        console.print(f"\n[bold]Converting test cases...[/bold]")
+        console.print(f"Input: {input_file} ({format_type.upper()} format)")
+        
+        output_path, count = convert_to_jsonl(
+            str(input_file),
+            str(output) if output else None
+        )
+        
+        console.print(f"\n[green]✓ Converted {count} test cases to: {output_path}[/green]")
+        console.print(f"\nNext steps:")
+        console.print(f"  Run benchmark: [cyan]domainbench run -d {output_path} -m openai/gpt-4o -m gemini/gemini-2.0-flash[/cyan]")
+        
+    except Exception as e:
+        console.print(f"\n[red]Error converting file: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
 def domains():
     """
     List available domains.

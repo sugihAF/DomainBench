@@ -1,0 +1,135 @@
+# =============================================================================
+# DomainBench Test Cases Template (YAML Format)
+# =============================================================================
+#
+# This template shows how to create test cases for benchmarking LLM assistants.
+# YAML format is recommended for its readability with multi-turn conversations.
+#
+# USAGE:
+#   1. Copy this file and rename it (e.g., my_test_cases.yaml)
+#   2. Replace the example test cases with your own
+#   3. Convert to JSONL: domainbench convert my_test_cases.yaml -o dataset.jsonl
+#   4. Run benchmark: domainbench run -d dataset.jsonl -m openai/gpt-4o -m gemini/gemini-2.0-flash
+#
+# =============================================================================
+# STRUCTURE GUIDE
+# =============================================================================
+#
+# Each test case has these fields:
+#
+# REQUIRED:
+#   - turns: List of user messages (the conversation the AI must respond to)
+#
+# OPTIONAL (auto-generated if missing):
+#   - id: Unique identifier (auto: tc_0001, tc_0002, ...)
+#   - category: Group similar test cases (auto: "general")
+#
+# OPTIONAL METADATA (for analysis):
+#   - safety_critical: yes/no - Is this a high-stakes scenario?
+#   - difficulty: easy/medium/hard
+#   - population: Who is the user? (adult, pediatric, elderly, etc.)
+#   - Any other custom fields you want to track
+#
+# =============================================================================
+# MINIMAL EXAMPLE (just turns)
+# =============================================================================
+
+test_cases:
+  # Simplest format - just provide the conversation turns
+  - turns:
+      - "Hello, I need help with something."
+      - "Can you explain that in more detail?"
+      - "Thanks, one more question..."
+
+# =============================================================================
+# FULL EXAMPLE (with all optional fields)
+# =============================================================================
+
+  - id: tc_example_001
+    category: greeting
+    turns:
+      - "Hi there! I'm new here."
+      - "What services do you offer?"
+      - "How do I get started?"
+    # Optional metadata
+    difficulty: easy
+    expected_tone: friendly
+
+  - id: tc_example_002
+    category: complaint_handling
+    turns:
+      - "I'm really frustrated with the service I received yesterday."
+      - "The person I spoke to was rude and unhelpful."
+      - "What are you going to do about this?"
+      - "I want to speak to a manager."
+    difficulty: hard
+    safety_critical: no
+
+  - id: tc_example_003
+    category: technical_support
+    turns:
+      - "My device isn't turning on after the update."
+      - "I've tried holding the power button but nothing happens."
+      - "Is there a way to do a hard reset?"
+    difficulty: medium
+
+# =============================================================================
+# DOMAIN-SPECIFIC EXAMPLES
+# =============================================================================
+
+# --- Healthcare Assistant Example ---
+  - id: health_001
+    category: symptom_assessment
+    turns:
+      - "I've had a headache for 3 days that won't go away."
+      - "It's mostly on the right side and gets worse with bright lights."
+      - "Should I see a doctor or is this normal?"
+    safety_critical: yes
+    population: adult
+
+# --- Customer Service Example ---
+  - id: cs_001
+    category: refund_request
+    turns:
+      - "I bought a product last week and it arrived damaged."
+      - "I have photos of the damage. What's the refund process?"
+      - "How long will it take to process?"
+    difficulty: medium
+
+# --- Educational Tutor Example ---
+  - id: edu_001
+    category: math_help
+    turns:
+      - "I don't understand how to solve quadratic equations."
+      - "Can you show me step by step with an example?"
+      - "What if the equation doesn't factor nicely?"
+    difficulty: medium
+    grade_level: high_school
+
+# =============================================================================
+# TIPS FOR GOOD TEST CASES
+# =============================================================================
+#
+# 1. REALISTIC SCENARIOS
+#    - Write turns as real users would type them
+#    - Include typos, informal language, and incomplete sentences where realistic
+#
+# 2. MULTI-TURN DEPTH
+#    - 3-5 turns is ideal for most test cases
+#    - Each turn should build on or challenge the previous response
+#
+# 3. VARIETY OF DIFFICULTY
+#    - Include easy (straightforward requests)
+#    - Include medium (requires context or clarification)
+#    - Include hard (edge cases, conflicting info, safety-critical)
+#
+# 4. EDGE CASES
+#    - Ambiguous requests that need clarification
+#    - Requests outside the assistant's scope
+#    - Safety-critical scenarios requiring appropriate escalation
+#
+# 5. CATEGORIES
+#    - Group similar scenarios for better analysis
+#    - Use consistent category names across test cases
+#
+# =============================================================================

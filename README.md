@@ -6,6 +6,7 @@ A flexible LLM benchmarking framework for comparing models across multiple capab
 
 - **Compare LLM Models**: Side-by-side comparison of 2+ models
 - **Multiple Capabilities**: Chat completion, function calling, structured output (expanding)
+- **AI-Powered Domain Creation**: Generate custom domains from natural language descriptions
 - **Custom Domains**: Define your own evaluation domains or use built-in ones
 - **LLM-as-Judge**: Automated evaluation with swap-order mitigation
 - **Rich Reporting**: JSON, Markdown, and table output formats
@@ -70,6 +71,7 @@ domainbench compare results/results_*.json
 |---------|-------------|
 | `domainbench run` | Run a benchmark comparing models |
 | `domainbench generate` | Generate test cases for a domain |
+| `domainbench create-domain` | Create a new domain using AI |
 | `domainbench domains` | List available domains |
 | `domainbench capabilities` | List available benchmark capabilities |
 | `domainbench compare` | Compare benchmark results |
@@ -107,7 +109,39 @@ domainbench/
 
 ## Creating Custom Domains
 
-Create a `domain.yaml` file:
+### Option 1: AI-Powered Creation (Recommended)
+
+Create a complete domain with AI by simply describing what you want:
+
+```bash
+# Create a doctor assistant domain
+domainbench create-domain "doctor assistant"
+
+# Create with a different provider/model
+domainbench create-domain "banking customer service" --provider anthropic --model claude-sonnet-4-20250514
+
+# Save to a custom directory
+domainbench create-domain "tech support agent" -o ./my_domains
+```
+
+This automatically generates:
+- `domain.yaml` - System prompt, personas, evaluation criteria
+- `generator.py` - Test case generator with 10-15 categories
+- `__init__.py` - Module exports
+
+Then use your new domain:
+
+```bash
+# Generate test cases
+domainbench generate -d doctor_assistant -n 100 -o doctor_test.jsonl
+
+# Run benchmark
+domainbench run -d doctor_test.jsonl -m openai/gpt-4o -m gemini/gemini-2.0-flash --domain doctor_assistant
+```
+
+### Option 2: Manual Creation
+
+Create a `domain.yaml` file manually:
 
 ```yaml
 domain:
@@ -130,6 +164,15 @@ Then use it:
 ```bash
 domainbench run -d dataset.jsonl -m openai/gpt-4o -m gemini/gemini-2.0-flash --domain ./my_domain/
 ```
+
+### create-domain Options
+
+| Option | Description |
+|--------|-------------|
+| `DESCRIPTION` | Domain description (e.g., "doctor assistant") |
+| `-p, --provider` | LLM provider for generation (default: openai) |
+| `-m, --model` | Model to use (default: gpt-4.1-2025-04-14) |
+| `-o, --output-dir` | Custom output directory |
 
 ## Supported Providers
 
