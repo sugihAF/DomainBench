@@ -2,16 +2,21 @@
 Google Gemini provider adapter
 Based on the GeminiChat class from waiterbench.py
 
-Supported models include:
-- Gemini 3 series: gemini-3-pro, gemini-3-flash
-- Gemini 2.5 series: gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite
-- Gemini 2.0 series: gemini-2.0-flash, gemini-2.0-flash-lite
-- Legacy: gemini-1.5-pro, gemini-1.5-flash
+Currently available stable models (as of January 2026):
+- Gemini 2.5: gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite
+- Gemini 2.0: gemini-2.0-flash, gemini-2.0-flash-lite
+- Gemini 1.5: gemini-1.5-pro, gemini-1.5-flash
 
-Model naming patterns:
-- Stable: gemini-3-flash, gemini-2.5-pro
-- Preview: gemini-3-flash-preview-01-2026
-- Latest: gemini-flash-latest
+Gemini 3 models (currently in preview, requires -preview suffix):
+- gemini-3-pro-preview
+- gemini-3-flash-preview
+
+Model aliases (auto-updated to latest):
+- gemini-flash-latest
+- gemini-pro-latest
+
+Note: Preview models may have stricter rate limits and require the -preview suffix.
+For production use, prefer stable models like gemini-2.5-pro or gemini-2.0-flash.
 """
 
 import base64
@@ -22,7 +27,7 @@ from domainbench.providers.base import BaseProvider
 class GeminiProvider(BaseProvider):
     """Provider adapter for Google Gemini API
     
-    Supports all Gemini model versions including Gemini 3 Pro and Flash.
+    Supports Gemini 1.5, 2.0, 2.5, and 3.x (preview) models.
     """
     
     name = "gemini"
@@ -92,6 +97,11 @@ class GeminiProvider(BaseProvider):
                 contents=prompt,
             )
         except Exception as e:
+            error_msg = str(e)
+            # Provide helpful message for common errors
+            if "404" in error_msg and "NOT_FOUND" in error_msg:
+                helpful_hint = "\n\nHint: For Gemini 3 models, use 'gemini-3-pro-preview' or 'gemini-3-flash-preview' (with -preview suffix).\nFor stable models, use 'gemini-2.5-pro', 'gemini-2.5-flash', or 'gemini-2.0-flash'."
+                raise RuntimeError(f"Gemini API error: {e}{helpful_hint}")
             raise RuntimeError(f"Gemini API error: {e}")
         
         # Extract text from response

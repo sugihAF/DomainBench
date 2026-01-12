@@ -15,11 +15,13 @@ Supported Providers & Models:
 
   OpenAI:     gpt-4o, gpt-4.1, gpt-5, gpt-5.2, o1, o3, o4-mini
   
-  Gemini:     gemini-2.0-flash, gemini-2.5-pro, gemini-3-flash, gemini-3-pro
+  Gemini:     gemini-2.0-flash, gemini-2.5-pro/flash, gemini-3-pro-preview, gemini-3-flash-preview
   
   Anthropic:  claude-3-5-sonnet, claude-sonnet-4, claude-4.5-opus/sonnet/haiku
 
-Model format: provider/model (e.g., openai/gpt-5.2, gemini/gemini-3-flash)
+Model format: provider/model (e.g., openai/gpt-5.2, gemini/gemini-3-flash-preview)
+
+Note: Gemini 3 models are currently in preview and require -preview suffix
 """,
     add_completion=False,
 )
@@ -64,9 +66,10 @@ def run(
     Supported model formats: provider/model
     
     Examples:
-        domainbench run -d dataset.jsonl -m openai/gpt-5.2 -m gemini/gemini-3-flash
+        domainbench run -d dataset.jsonl -m openai/gpt-5.2 -m gemini/gemini-3-flash-preview
         domainbench run -d dataset.jsonl -m openai/gpt-4o -m anthropic/claude-4.5-sonnet
-        domainbench run -d dataset.jsonl -m gemini/gemini-3-pro -m anthropic/claude-4.5-opus
+        domainbench run -d dataset.jsonl -m gemini/gemini-3-pro-preview -m anthropic/claude-4.5-opus
+        domainbench run -d dataset.jsonl -m gemini/gemini-2.5-pro -m gemini/gemini-2.0-flash
     """
     from dotenv import load_dotenv
     load_dotenv()
@@ -179,7 +182,7 @@ def create_domain(
     Examples:
         domainbench create-domain "doctor assistant"
         domainbench create-domain "banking customer service" --provider anthropic --model claude-4.5-sonnet
-        domainbench create-domain "tech support agent" --provider gemini --model gemini-3-pro
+        domainbench create-domain "tech support agent" --provider gemini --model gemini-3-pro-preview
         domainbench create-domain "legal advisor" --provider openai --model gpt-5.2
     """
     from dotenv import load_dotenv
@@ -227,7 +230,7 @@ def create_domain(
             console.print(f"\n[bold green]Domain '{domain_slug}' is ready to use![/bold green]")
             console.print(f"\nNext steps:")
             console.print(f"  1. Generate test cases: [cyan]domainbench generate -d {domain_slug} -n 100 -o dataset.jsonl[/cyan]")
-            console.print(f"  2. Run benchmark: [cyan]domainbench run -d dataset.jsonl -m openai/gpt-5.2 -m gemini/gemini-3-flash --domain {domain_slug}[/cyan]")
+            console.print(f"  2. Run benchmark: [cyan]domainbench run -d dataset.jsonl -m openai/gpt-5.2 -m gemini/gemini-3-flash-preview --domain {domain_slug}[/cyan]")
         else:
             console.print(f"[yellow]⚠[/yellow] Validation warning: {error}")
             console.print(f"The domain was created but may need manual fixes at: {domain_path}")
@@ -363,7 +366,7 @@ def convert(
         
         console.print(f"\n[green]✓ Converted {count} test cases to: {output_path}[/green]")
         console.print(f"\nNext steps:")
-        console.print(f"  Run benchmark: [cyan]domainbench run -d {output_path} -m openai/gpt-5.2 -m anthropic/claude-4.5-sonnet[/cyan]")
+        console.print(f"  Run benchmark: [cyan]domainbench run -d {output_path} -m openai/gpt-5.2 -m gemini/gemini-2.5-pro[/cyan]")
         
     except Exception as e:
         console.print(f"\n[red]Error converting file: {e}[/red]")
@@ -411,11 +414,19 @@ def capabilities():
 def run_ocr(
     dataset: Path = typer.Option(
         ..., "--dataset", "-d",
-        help="Path to dataset JSONL file with image paths and ground truth"
+        help="Path to dataset JSONL file, or a single image/PDF file directly"
     ),
     models: List[str] = typer.Option(
         ..., "--models", "-m",
         help="Model(s) to benchmark (format: provider/model). Use 1 for single eval, 2 for comparison."
+    ),
+    ground_truth: Optional[Path] = typer.Option(
+        None, "--ground-truth", "-gt",
+        help="Path to ground truth JSON file (required when -d is a single image/PDF)"
+    ),
+    output_schema: Optional[Path] = typer.Option(
+        None, "--schema-output", "-so",
+        help="Path to JSON schema file defining the expected structured output format"
     ),
     schema_type: str = typer.Option(
         "menu", "--schema", "-s",
@@ -433,6 +444,14 @@ def run_ocr(
         0.7, "--threshold", "-t",
         help="Fuzzy match threshold for accuracy (0.0-1.0)"
     ),
+    pdf_dpi: int = typer.Option(
+        150, "--pdf-dpi",
+        help="DPI resolution for PDF to image conversion (default: 150)"
+    ),
+    pdf_max_pages: Optional[int] = typer.Option(
+        None, "--pdf-max-pages",
+        help="Maximum pages to process per PDF (default: all)"
+    ),
     verbose: bool = typer.Option(
         True, "--verbose/--quiet", "-v/-q",
         help="Show detailed progress"
@@ -444,19 +463,34 @@ def run_ocr(
     Supports single model evaluation or two model comparison.
     Uses fuzzy matching against ground truth (not LLM-as-Judge).
     
+    Supported input formats:
+        1. JSONL dataset file (multiple test cases)
+        2. Single image file (PNG, JPG, etc.) with -gt for ground truth
+        3. Single PDF file with -gt for ground truth
+    
+    Output Schema (-so):
+        Define the expected JSON structure for extraction. The schema is included
+        in the prompt to guide the model's structured output. Can be JSON or text.
+    
     Dataset JSONL format:
         {"id": "001", "image_path": "menu.png", "ground_truth": {...}}
-        {"id": "002", "image_paths": ["p1.png", "p2.png"], "ground_truth": {...}}
+        {"id": "002", "pdf_path": "document.pdf", "ground_truth": {...}}
     
     Examples:
-        # Single model evaluation
+        # Using JSONL dataset
         domainbench run-ocr -d menu_dataset.jsonl -m openai/gpt-4o
         
-        # Two model comparison
-        domainbench run-ocr -d menu_dataset.jsonl -m openai/gpt-4o -m gemini/gemini-2.0-flash
+        # Single PDF with ground truth and output schema
+        domainbench run-ocr -d menu.pdf -gt truth.json -so schema.json -m openai/gpt-4o
         
-        # With custom threshold
-        domainbench run-ocr -d receipts.jsonl -m openai/gpt-4o --schema receipt --threshold 0.8
+        # Compare models with custom schema
+        domainbench run-ocr -d receipt.png -gt expected.json -so receipt_schema.json -m openai/gpt-4o -m gemini/gemini-2.5-flash
+        
+        # Two model comparison on PDF
+        domainbench run-ocr -d document.pdf -gt truth.json -m openai/gpt-4o -m gemini/gemini-2.5-flash
+        
+        # With PDF options
+        domainbench run-ocr -d large_doc.pdf -gt truth.json -m openai/gpt-4o --pdf-dpi 200 --pdf-max-pages 10
     """
     from dotenv import load_dotenv
     load_dotenv()
@@ -511,13 +545,87 @@ def run_ocr(
         provider = get_provider(model_config)
         providers[model_config.display_name] = provider
     
-    # Load dataset
+    # Load dataset - supports JSONL or direct image/PDF file
     if not dataset.exists():
         console.print(f"[red]Dataset not found: {dataset}[/red]")
         raise typer.Exit(1)
     
-    with open(dataset, 'r', encoding='utf-8') as f:
-        test_cases = [json.loads(line) for line in f if line.strip()]
+    # Check if input is a direct image/PDF file or JSONL dataset
+    file_ext = dataset.suffix.lower()
+    is_direct_file = file_ext in ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']
+    
+    # Load output schema if provided
+    user_output_schema = None
+    if output_schema:
+        if not output_schema.exists():
+            console.print(f"[red]Output schema file not found: {output_schema}[/red]")
+            raise typer.Exit(1)
+        
+        try:
+            with open(output_schema, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                # Try to parse as JSON first
+                try:
+                    user_output_schema = json.loads(content)
+                except json.JSONDecodeError:
+                    # If not valid JSON, use as raw text schema description
+                    user_output_schema = content
+        except Exception as e:
+            console.print(f"[red]Error reading output schema file: {e}[/red]")
+            raise typer.Exit(1)
+    
+    if is_direct_file:
+        # Direct image/PDF file mode
+        gt_data = {}
+        
+        if ground_truth:
+            if not ground_truth.exists():
+                console.print(f"[red]Ground truth file not found: {ground_truth}[/red]")
+                raise typer.Exit(1)
+            
+            # Load ground truth (supports JSON)
+            try:
+                with open(ground_truth, 'r', encoding='utf-8') as f:
+                    gt_data = json.load(f)
+            except json.JSONDecodeError as e:
+                console.print(f"[red]Invalid JSON in ground truth file: {e}[/red]")
+                raise typer.Exit(1)
+        else:
+            console.print("[yellow]Warning: No ground truth provided (-gt). Running inference only.[/yellow]")
+        
+        # Create single test case from the file
+        test_case = {
+            "id": dataset.stem,  # Use filename without extension as ID
+            "ground_truth": gt_data,
+        }
+        
+        # Add output schema to test case if provided
+        if user_output_schema:
+            test_case["output_schema"] = user_output_schema
+        
+        # Set the appropriate path field based on file type
+        if file_ext == '.pdf':
+            test_case["pdf_path"] = str(dataset)
+        else:
+            test_case["image_path"] = str(dataset)
+        
+        test_cases = [test_case]
+        input_mode = f"Direct file: {dataset.name}"
+        
+    else:
+        # JSONL dataset mode
+        if ground_truth:
+            console.print("[yellow]Warning: -gt is ignored when using JSONL dataset (ground truth is in the file)[/yellow]")
+        
+        with open(dataset, 'r', encoding='utf-8') as f:
+            test_cases = [json.loads(line) for line in f if line.strip()]
+        
+        # Apply output schema to all test cases if provided (overrides per-case schemas)
+        if user_output_schema:
+            for tc in test_cases:
+                tc["output_schema"] = user_output_schema
+        
+        input_mode = f"Dataset: {dataset} ({len(test_cases)} items)"
     
     if max_items:
         test_cases = test_cases[:max_items]
@@ -526,15 +634,30 @@ def run_ocr(
     schema_config = get_schema_config(schema_type)
     schema_config["threshold"] = threshold
     
-    # Initialize capability
-    capability = OCRCapability(schema_config=schema_config)
+    # Initialize capability with PDF settings
+    capability = OCRCapability(
+        schema_config=schema_config,
+        pdf_dpi=pdf_dpi,
+        pdf_max_pages=pdf_max_pages,
+    )
+    
+    # Count PDF files in dataset for display
+    pdf_count = sum(
+        1 for tc in test_cases 
+        if tc.get("pdf_path") or tc.get("pdf_paths")
+    )
     
     # Print header
     console.print(f"\n[bold blue]DomainBench OCR Benchmark[/bold blue]")
     console.print(f"Mode: {'Comparison' if is_comparison else 'Single Model Evaluation'}")
-    console.print(f"Dataset: {dataset} ({len(test_cases)} items)")
+    console.print(f"{input_mode}")
+    if pdf_count > 0:
+        console.print(f"PDF files: {pdf_count} (DPI: {pdf_dpi}, max pages: {pdf_max_pages or 'all'})")
     console.print(f"Models: {', '.join([m.display_name for m in model_configs])}")
-    console.print(f"Schema: {schema_type} (threshold: {threshold})")
+    console.print(f"Evaluation schema: {schema_type} (threshold: {threshold})")
+    if user_output_schema:
+        schema_preview = str(user_output_schema)[:80] + "..." if len(str(user_output_schema)) > 80 else str(user_output_schema)
+        console.print(f"Output schema: [cyan]{output_schema.name}[/cyan]")
     console.print()
     
     # Results storage
@@ -614,6 +737,15 @@ def run_ocr(
                     "winner": winner,
                     "scores": {model_a: eval_result["score_A"], model_b: eval_result["score_B"]},
                     "reasons": eval_result.get("reasons", []),
+                    "raw_responses": {
+                        model_a: responses[model_a],
+                        model_b: responses[model_b],
+                    },
+                    "parsed_extractions": {
+                        model_a: eval_result.get("details", {}).get("parsed_a", capability.parse_response(responses[model_a])),
+                        model_b: eval_result.get("details", {}).get("parsed_b", capability.parse_response(responses[model_b])),
+                    },
+                    "ground_truth": ground_truth,
                 }
             else:
                 # Single model evaluation
@@ -630,75 +762,86 @@ def run_ocr(
                     "test_id": case_id,
                     "score": eval_result["overall_score"],
                     "metrics": eval_result["metrics"],
+                    "raw_response": responses[model_name],
+                    "parsed_extraction": eval_result.get("parsed_result", {}),
+                    "ground_truth": ground_truth,
                 }
             
             results.append(result)
             progress.update(task, advance=1)
     
     # Calculate summary statistics
+    model_summaries = {}
+    for model_config in model_configs:
+        name = model_config.display_name
+        scores = model_metrics[name]["scores"]
+        model_summaries[name] = {
+            "avg_score": sum(scores) / len(scores) if scores else 0,
+            "min_score": min(scores) if scores else 0,
+            "max_score": max(scores) if scores else 0,
+            "avg_time_ms": model_metrics[name]["total_time"] / len(test_cases) if test_cases else 0,
+        }
+    
+    # Determine overall winner for comparison mode
+    overall_winner = None
+    if is_comparison:
+        if comparison_stats["A_wins"] > comparison_stats["B_wins"]:
+            overall_winner = model_configs[0].display_name
+        elif comparison_stats["B_wins"] > comparison_stats["A_wins"]:
+            overall_winner = model_configs[1].display_name
+        else:
+            overall_winner = "TIE"
+    
+    # Display Results Summary
     console.print("\n[bold]Results Summary[/bold]")
     console.print("-" * 50)
     
     summary_table = Table(title="Model Performance")
     summary_table.add_column("Model", style="cyan")
-    summary_table.add_column("Avg F1 Score", justify="right")
+    summary_table.add_column("Avg Score", justify="right")
     summary_table.add_column("Min", justify="right")
     summary_table.add_column("Max", justify="right")
     summary_table.add_column("Avg Time (ms)", justify="right")
     
     for model_config in model_configs:
         name = model_config.display_name
-        scores = model_metrics[name]["scores"]
-        avg_score = sum(scores) / len(scores) if scores else 0
-        min_score = min(scores) if scores else 0
-        max_score = max(scores) if scores else 0
-        avg_time = model_metrics[name]["total_time"] / len(test_cases)
-        
+        summary = model_summaries[name]
         summary_table.add_row(
             name,
-            f"{avg_score:.1f}%",
-            f"{min_score:.1f}%",
-            f"{max_score:.1f}%",
-            f"{avg_time:.0f}",
+            f"{summary['avg_score']:.1f}%",
+            f"{summary['min_score']:.1f}%",
+            f"{summary['max_score']:.1f}%",
+            f"{summary['avg_time_ms']:.0f}",
         )
     
     console.print(summary_table)
     
-    # Print comparison results
+    # Display comparison results if in comparison mode
     if is_comparison:
         console.print()
-        winner_table = Table(title="Head-to-Head Comparison")
-        winner_table.add_column("Model", style="cyan")
-        winner_table.add_column("Wins", justify="right", style="green")
-        winner_table.add_column("Losses", justify="right", style="red")
-        winner_table.add_column("Ties", justify="right")
+        comparison_table = Table(title="Head-to-Head Comparison")
+        comparison_table.add_column("Model", style="cyan")
+        comparison_table.add_column("Wins", justify="right", style="green")
+        comparison_table.add_column("Losses", justify="right", style="red")
+        comparison_table.add_column("Ties", justify="right")
         
         model_a_name = model_configs[0].display_name
         model_b_name = model_configs[1].display_name
         
-        winner_table.add_row(
+        comparison_table.add_row(
             model_a_name,
             str(comparison_stats["A_wins"]),
             str(comparison_stats["B_wins"]),
             str(comparison_stats["ties"]),
         )
-        winner_table.add_row(
+        comparison_table.add_row(
             model_b_name,
             str(comparison_stats["B_wins"]),
             str(comparison_stats["A_wins"]),
             str(comparison_stats["ties"]),
         )
         
-        console.print(winner_table)
-        
-        # Determine overall winner
-        if comparison_stats["A_wins"] > comparison_stats["B_wins"]:
-            overall_winner = model_a_name
-        elif comparison_stats["B_wins"] > comparison_stats["A_wins"]:
-            overall_winner = model_b_name
-        else:
-            overall_winner = "TIE"
-        
+        console.print(comparison_table)
         console.print(f"\n[bold]Overall Winner: [green]{overall_winner}[/green][/bold]")
     
     # Save results
@@ -715,17 +858,10 @@ def run_ocr(
             "threshold": threshold,
             "dataset": str(dataset),
             "test_count": len(test_cases),
+            "output_schema": str(output_schema) if output_schema else None,
         },
         "summary": {
-            "model_metrics": {
-                name: {
-                    "avg_score": sum(data["scores"]) / len(data["scores"]) if data["scores"] else 0,
-                    "min_score": min(data["scores"]) if data["scores"] else 0,
-                    "max_score": max(data["scores"]) if data["scores"] else 0,
-                    "total_time_ms": data["total_time"],
-                }
-                for name, data in model_metrics.items()
-            },
+            "model_metrics": model_summaries,
         },
         "results": results,
     }
@@ -737,7 +873,27 @@ def run_ocr(
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(full_results, f, indent=2, ensure_ascii=False)
     
-    console.print(f"\n[green]Results saved to: {output_file}[/green]")
+    console.print(f"\n[green]✓ Results saved to: {output_file}[/green]")
+    
+    # Also save a separate extraction-only file for easy inspection
+    extraction_file = output / f"ocr_extractions_{timestamp}.json"
+    extractions = []
+    
+    for r in results:
+        extraction_entry = {"test_id": r["test_id"]}
+        
+        if is_comparison:
+            extraction_entry["extractions"] = r.get("parsed_extractions", {})
+        else:
+            extraction_entry["extraction"] = r.get("parsed_extraction", {})
+        
+        extraction_entry["ground_truth"] = r.get("ground_truth", {})
+        extractions.append(extraction_entry)
+    
+    with open(extraction_file, 'w', encoding='utf-8') as f:
+        json.dump(extractions, f, indent=2, ensure_ascii=False)
+    
+    console.print(f"[green]✓ Extractions saved to: {extraction_file}[/green]")
 
 
 @app.command()
@@ -760,7 +916,7 @@ def compare(
     
     Examples:
         domainbench compare results1.json results2.json
-        domainbench compare gpt5_vs_gemini3.json claude45_vs_gpt5.json -f markdown
+        domainbench compare gpt5_vs_gemini25.json claude45_vs_gpt5.json -f markdown
     """
     import json
     from rich.table import Table

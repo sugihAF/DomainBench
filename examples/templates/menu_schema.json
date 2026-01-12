@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Menu Extraction Schema",
+  "description": "Expected output format for menu OCR extraction",
+  "type": "object",
+  "properties": {
+    "restaurant_name": {
+      "type": "string",
+      "description": "Name of the restaurant if visible"
+    },
+    "categories": {
+      "type": "array",
+      "description": "Menu categories/sections",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "required": ["name"]
+      }
+    },
+    "items": {
+      "type": "array",
+      "description": "Menu items",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { 
+            "type": "string",
+            "description": "Item name"
+          },
+          "description": { 
+            "type": "string",
+            "description": "Item description if available"
+          },
+          "price": { 
+            "type": "number",
+            "description": "Price as a number (e.g., 12.99)"
+          },
+          "category": {
+            "type": "string",
+            "description": "Category this item belongs to"
+          }
+        },
+        "required": ["name", "price"]
+      }
+    },
+    "modifiers": {
+      "type": "array",
+      "description": "Add-ons, sides, or modifiers",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "price": { "type": "number" }
+        },
+        "required": ["name"]
+      }
+    }
+  },
+  "required": ["items"]
+}
