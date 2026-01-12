@@ -7,30 +7,46 @@ from typing import Optional, List
 from pathlib import Path
 from rich.console import Console
 
+# Main app
 app = typer.Typer(
     name="domainbench",
     help="""DomainBench - LLM Benchmarking Framework
 
-Supported Providers & Models:
+Organized by capability type:
+  chat - Chat completion benchmarks
+  ocr  - OCR/Vision extraction benchmarks
 
+Supported Providers & Models:
   OpenAI:     gpt-4o, gpt-4.1, gpt-5, gpt-5.2, o1, o3, o4-mini
-  
   Gemini:     gemini-2.0-flash, gemini-2.5-pro/flash, gemini-3-pro-preview, gemini-3-flash-preview
-  
   Anthropic:  claude-3-5-sonnet, claude-sonnet-4, claude-4.5-opus/sonnet/haiku
 
 Model format: provider/model (e.g., openai/gpt-5.2, gemini/gemini-3-flash-preview)
-
-Note: Gemini 3 models are currently in preview and require -preview suffix
 """,
     add_completion=False,
+)
+
+# Chat completion sub-app
+chat_app = typer.Typer(
+    name="chat",
+    help="Chat completion benchmarks - multi-turn conversations",
+)
+
+# OCR sub-app
+ocr_app = typer.Typer(
+    name="ocr",
+    help="OCR/Vision extraction benchmarks - document and image processing",
 )
 
 console = Console()
 
 
-@app.command()
-def run(
+# =============================================================================
+# CHAT COMPLETION COMMANDS
+# =============================================================================
+
+@chat_app.command("run")
+def chat_run(
     config: Optional[Path] = typer.Option(
         None, "--config", "-c",
         help="Path to benchmark configuration YAML file"
@@ -61,26 +77,22 @@ def run(
     ),
 ):
     """
-    Run a benchmark comparing LLM models.
-    
-    Supported model formats: provider/model
-    
+    Run a chat completion benchmark comparing LLM models.
+
     Examples:
-        domainbench run -d dataset.jsonl -m openai/gpt-5.2 -m gemini/gemini-3-flash-preview
-        domainbench run -d dataset.jsonl -m openai/gpt-4o -m anthropic/claude-4.5-sonnet
-        domainbench run -d dataset.jsonl -m gemini/gemini-3-pro-preview -m anthropic/claude-4.5-opus
-        domainbench run -d dataset.jsonl -m gemini/gemini-2.5-pro -m gemini/gemini-2.0-flash
+        domainbench chat run -d dataset.jsonl -m openai/gpt-5.2 -m gemini/gemini-3-flash-preview
+        domainbench chat run -d dataset.jsonl -m openai/gpt-4o -m anthropic/claude-4.5-sonnet
     """
     from dotenv import load_dotenv
     load_dotenv()
-    
+
     from domainbench.core.config import (
-        BenchmarkConfig, ModelConfig, JudgeConfig, 
+        BenchmarkConfig, ModelConfig, JudgeConfig,
         BenchmarkSettings, OutputConfig, ProviderType
     )
     from domainbench.core.engine import BenchmarkEngine
     from domainbench.domains import load_domain
-    
+
     # Build config from options or load from file
     if config and config.exists():
         bench_config = BenchmarkConfig.from_yaml(str(config))
@@ -90,7 +102,7 @@ def run(
             console.print("[red]Error: At least 2 models required for comparison[/red]")
             console.print("Use: -m provider/model -m provider/model")
             raise typer.Exit(1)
-        
+
         model_configs = []
         for model_spec in models:
             parts = model_spec.split("/", 1)
@@ -98,7 +110,7 @@ def run(
                 console.print(f"[red]Invalid model spec: {model_spec}[/red]")
                 console.print("Expected format: provider/model (e.g., openai/gpt-4o)")
                 raise typer.Exit(1)
-            
+
             provider_str, model_name = parts
             try:
                 provider = ProviderType(provider_str.lower())
@@ -106,20 +118,20 @@ def run(
                 console.print(f"[red]Unknown provider: {provider_str}[/red]")
                 console.print(f"Available: {[p.value for p in ProviderType]}")
                 raise typer.Exit(1)
-            
+
             model_configs.append(ModelConfig(
                 provider=provider,
                 model=model_name,
                 alias=f"{provider_str}/{model_name}",
             ))
-        
+
         # Load domain
         try:
             domain_config = load_domain(domain)
         except ValueError as e:
             console.print(f"[red]Error loading domain: {e}[/red]")
             raise typer.Exit(1)
-        
+
         # Build benchmark config
         bench_config = BenchmarkConfig(
             name=f"Benchmark: {' vs '.join([m.display_name for m in model_configs])}",
@@ -130,30 +142,30 @@ def run(
             settings=BenchmarkSettings(max_items=max_items),
             output=OutputConfig(directory=str(output)),
         )
-    
+
     # Create and run engine
-    console.print(f"\n[bold]Starting benchmark...[/bold]")
+    console.print(f"\n[bold]Starting chat completion benchmark...[/bold]")
     console.print(f"Domain: {bench_config.domain}")
     console.print(f"Dataset: {dataset}")
     console.print(f"Models: {', '.join([m.display_name for m in bench_config.models])}")
     console.print(f"Judge: {bench_config.judge.model}\n")
-    
+
     engine = BenchmarkEngine(bench_config)
-    
+
     try:
         results = engine.run(str(dataset), verbose=True)
-        
+
         # Save results
         output_path = engine.save_results()
         console.print(f"\n[green]Results saved to: {output_path}[/green]")
-        
+
     except Exception as e:
         console.print(f"\n[red]Benchmark failed: {e}[/red]")
         raise typer.Exit(1)
 
 
-@app.command("create-domain")
-def create_domain(
+@chat_app.command("create-domain")
+def chat_create_domain(
     description: str = typer.Argument(
         ...,
         help="Description of the domain to create (e.g., 'doctor assistant', 'banking customer service')"
@@ -172,36 +184,30 @@ def create_domain(
     ),
 ):
     """
-    Create a new domain using AI.
-    
-    This command uses an LLM to generate a complete domain definition including
-    domain.yaml and generator.py based on your description.
-    
-    Supported providers: openai, anthropic, gemini
-    
+    Create a new chat completion domain using AI.
+
     Examples:
-        domainbench create-domain "doctor assistant"
-        domainbench create-domain "banking customer service" --provider anthropic --model claude-4.5-sonnet
-        domainbench create-domain "tech support agent" --provider gemini --model gemini-3-pro-preview
-        domainbench create-domain "legal advisor" --provider openai --model gpt-5.2
+        domainbench chat create-domain "doctor assistant"
+        domainbench chat create-domain "banking customer service" --provider anthropic
+        domainbench chat create-domain "tech support agent" --model gpt-5.2
     """
     from dotenv import load_dotenv
     load_dotenv()
-    
+
     from domainbench.domains.creator import (
-        create_domain_with_ai, 
+        create_domain_with_ai,
         validate_generated_domain,
         list_domain_categories,
         DEFAULT_CREATOR_MODEL,
     )
-    
+
     # Use default model if not specified
     if model is None:
         model = DEFAULT_CREATOR_MODEL
-    
+
     console.print(f"\n[bold]Creating domain: {description}[/bold]")
     console.print(f"Using: {provider}/{model}\n")
-    
+
     try:
         with console.status("[bold green]Generating domain files..."):
             domain_path, domain_slug = create_domain_with_ai(
@@ -210,38 +216,38 @@ def create_domain(
                 model=model,
                 output_dir=output_dir,
             )
-        
+
         console.print(f"[green]✓[/green] Domain files created at: {domain_path}")
-        
+
         # Validate the generated domain
         console.print("\n[dim]Validating generated files...[/dim]")
         is_valid, error = validate_generated_domain(domain_path)
-        
+
         if is_valid:
             console.print(f"[green]✓[/green] Validation passed!")
-            
+
             # Show categories
             categories = list_domain_categories(domain_slug)
             if categories:
                 console.print(f"\n[bold]Generated categories ({len(categories)}):[/bold]")
                 for cat in categories:
                     console.print(f"  • {cat}")
-            
+
             console.print(f"\n[bold green]Domain '{domain_slug}' is ready to use![/bold green]")
             console.print(f"\nNext steps:")
-            console.print(f"  1. Generate test cases: [cyan]domainbench generate -d {domain_slug} -n 100 -o dataset.jsonl[/cyan]")
-            console.print(f"  2. Run benchmark: [cyan]domainbench run -d dataset.jsonl -m openai/gpt-5.2 -m gemini/gemini-3-flash-preview --domain {domain_slug}[/cyan]")
+            console.print(f"  1. Generate test cases: [cyan]domainbench chat generate -d {domain_slug} -n 100 -o dataset.jsonl[/cyan]")
+            console.print(f"  2. Run benchmark: [cyan]domainbench chat run -d dataset.jsonl -m openai/gpt-5.2 -m gemini/gemini-3-flash-preview --domain {domain_slug}[/cyan]")
         else:
             console.print(f"[yellow]⚠[/yellow] Validation warning: {error}")
             console.print(f"The domain was created but may need manual fixes at: {domain_path}")
-            
+
     except Exception as e:
         console.print(f"\n[red]Error creating domain: {e}[/red]")
         raise typer.Exit(1)
 
 
-@app.command()
-def generate(
+@chat_app.command("generate")
+def chat_generate(
     domain: str = typer.Option(
         "restaurant_waiter", "--domain", "-d",
         help="Domain to generate test cases for"
@@ -260,30 +266,30 @@ def generate(
     ),
 ):
     """
-    Generate test cases for a domain.
-    
-    Example:
-        domainbench generate -d restaurant_waiter -n 100 -o waiterbench.jsonl
-        domainbench generate -d doctor_assistant -n 50 -o doctor_test.jsonl
+    Generate chat completion test cases for a domain.
+
+    Examples:
+        domainbench chat generate -d restaurant_waiter -n 100 -o waiterbench.jsonl
+        domainbench chat generate -d doctor_assistant -n 50 -o doctor_test.jsonl
     """
     import json
-    
+
     console.print(f"\n[bold]Generating test cases...[/bold]")
     console.print(f"Domain: {domain}")
     console.print(f"Count: {count}")
     console.print(f"Seed: {seed}")
-    
+
     # Dynamically load generator from domain
     items = None
-    
+
     # Check for generator in the domain folder
     from pathlib import Path as PathLib
     from domainbench.domains.loader import BUILTIN_DOMAINS_DIR
-    
+
     # Try builtin domain first
     domain_path = BUILTIN_DOMAINS_DIR / domain
     generator_path = domain_path / "generator.py"
-    
+
     # Also check if domain is a path
     if not generator_path.exists():
         domain_as_path = PathLib(domain)
@@ -292,14 +298,14 @@ def generate(
                 generator_path = domain_as_path / "generator.py"
             else:
                 generator_path = domain_as_path.parent / "generator.py"
-    
+
     if generator_path.exists():
         try:
             import importlib.util
             spec = importlib.util.spec_from_file_location("generator", generator_path)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            
+
             if hasattr(module, 'generate_test_cases'):
                 items = module.generate_test_cases(count, seed)
                 console.print(f"[dim]Loaded generator from: {generator_path}[/dim]")
@@ -313,20 +319,20 @@ def generate(
         console.print(f"[red]No generator available for domain: {domain}[/red]")
         console.print(f"[dim]Looked for: {generator_path}[/dim]")
         console.print("\nTo create a new domain with AI, use:")
-        console.print(f"  [cyan]domainbench create-domain \"{domain}\"[/cyan]")
+        console.print(f"  [cyan]domainbench chat create-domain \"{domain}\"[/cyan]")
         raise typer.Exit(1)
-    
+
     # Write to file
     output.parent.mkdir(parents=True, exist_ok=True)
     with open(output, 'w', encoding='utf-8') as f:
         for item in items:
             f.write(json.dumps(item, ensure_ascii=False) + '\n')
-    
+
     console.print(f"\n[green]Generated {len(items)} test cases to: {output}[/green]")
 
 
-@app.command()
-def convert(
+@chat_app.command("convert")
+def chat_convert(
     input_file: Path = typer.Argument(
         ...,
         help="Input file path (YAML or CSV format)"
@@ -337,81 +343,62 @@ def convert(
     ),
 ):
     """
-    Convert test cases from YAML or CSV to JSONL format.
-    
-    This allows you to create test cases in a more user-friendly format
-    and convert them for use with the benchmark engine.
-    
+    Convert chat test cases from YAML or CSV to JSONL format.
+
     Examples:
-        domainbench convert test_cases.yaml
-        domainbench convert test_cases.csv -o dataset.jsonl
-    
-    See examples/templates/ for template files with documentation.
+        domainbench chat convert test_cases.yaml
+        domainbench chat convert test_cases.csv -o dataset.jsonl
     """
     from domainbench.domains.converter import convert_to_jsonl, detect_format
-    
+
     if not input_file.exists():
         console.print(f"[red]Error: File not found: {input_file}[/red]")
         raise typer.Exit(1)
-    
+
     try:
         format_type = detect_format(str(input_file))
         console.print(f"\n[bold]Converting test cases...[/bold]")
         console.print(f"Input: {input_file} ({format_type.upper()} format)")
-        
+
         output_path, count = convert_to_jsonl(
             str(input_file),
             str(output) if output else None
         )
-        
+
         console.print(f"\n[green]✓ Converted {count} test cases to: {output_path}[/green]")
         console.print(f"\nNext steps:")
-        console.print(f"  Run benchmark: [cyan]domainbench run -d {output_path} -m openai/gpt-5.2 -m gemini/gemini-2.5-pro[/cyan]")
-        
+        console.print(f"  Run benchmark: [cyan]domainbench chat run -d {output_path} -m openai/gpt-5.2 -m gemini/gemini-2.5-pro[/cyan]")
+
     except Exception as e:
         console.print(f"\n[red]Error converting file: {e}[/red]")
         raise typer.Exit(1)
 
 
-@app.command()
-def domains():
+@chat_app.command("domains")
+def chat_domains():
     """
-    List available domains.
+    List available chat completion domains.
     """
     from rich.table import Table
     from domainbench.domains import list_builtin_domains
-    
-    table = Table(title="Available Domains")
+
+    table = Table(title="Available Chat Completion Domains")
     table.add_column("Name", style="cyan")
     table.add_column("Description")
     table.add_column("Type", style="green")
-    
+
     for domain in list_builtin_domains():
         table.add_row(domain["name"], domain["description"], "built-in")
-    
+
     console.print(table)
 
 
-@app.command()
-def capabilities():
-    """
-    List available benchmark capabilities.
-    """
-    from rich.table import Table
-    from domainbench.capabilities import list_capabilities
-    
-    table = Table(title="Available Capabilities")
-    table.add_column("Name", style="cyan")
-    table.add_column("Description")
-    
-    for cap in list_capabilities():
-        table.add_row(cap["name"], cap["description"])
-    
-    console.print(table)
+# =============================================================================
+# OCR COMMANDS
+# =============================================================================
 
-
-@app.command("run-ocr")
-def run_ocr(
+@ocr_app.command("run")
+def ocr_run(
     dataset: Path = typer.Option(
         ..., "--dataset", "-d",
         help="Path to dataset JSONL file, or a single image/PDF file directly"
@@ -459,73 +446,54 @@ def run_ocr(
 ):
     """
     Run an OCR/Vision extraction benchmark.
-    
+
     Supports single model evaluation or two model comparison.
     Uses fuzzy matching against ground truth (not LLM-as-Judge).
-    
+
     Supported input formats:
         1. JSONL dataset file (multiple test cases)
         2. Single image file (PNG, JPG, etc.) with -gt for ground truth
         3. Single PDF file with -gt for ground truth
-    
-    Output Schema (-so):
-        Define the expected JSON structure for extraction. The schema is included
-        in the prompt to guide the model's structured output. Can be JSON or text.
-    
-    Dataset JSONL format:
-        {"id": "001", "image_path": "menu.png", "ground_truth": {...}}
-        {"id": "002", "pdf_path": "document.pdf", "ground_truth": {...}}
-    
+
     Examples:
-        # Using JSONL dataset
-        domainbench run-ocr -d menu_dataset.jsonl -m openai/gpt-4o
-        
-        # Single PDF with ground truth and output schema
-        domainbench run-ocr -d menu.pdf -gt truth.json -so schema.json -m openai/gpt-4o
-        
-        # Compare models with custom schema
-        domainbench run-ocr -d receipt.png -gt expected.json -so receipt_schema.json -m openai/gpt-4o -m gemini/gemini-2.5-flash
-        
-        # Two model comparison on PDF
-        domainbench run-ocr -d document.pdf -gt truth.json -m openai/gpt-4o -m gemini/gemini-2.5-flash
-        
-        # With PDF options
-        domainbench run-ocr -d large_doc.pdf -gt truth.json -m openai/gpt-4o --pdf-dpi 200 --pdf-max-pages 10
+        domainbench ocr run -d menu_dataset.jsonl -m openai/gpt-4o
+        domainbench ocr run -d menu.pdf -gt truth.json -so schema.json -m openai/gpt-4o
+        domainbench ocr run -d receipt.png -gt expected.json -m openai/gpt-4o -m gemini/gemini-2.5-flash
     """
     from dotenv import load_dotenv
     load_dotenv()
-    
+
     import json
     import time
     from datetime import datetime
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
     from rich.table import Table
-    
+
     from domainbench.core.config import ModelConfig, ProviderType
     from domainbench.providers import get_provider
     from domainbench.capabilities.ocr import (
-        OCRCapability, 
+        OCRCapability,
         get_schema_config,
     )
-    
+
     # Validate model count
     if len(models) < 1 or len(models) > 2:
         console.print("[red]Error: Provide 1 model (single eval) or 2 models (comparison)[/red]")
         raise typer.Exit(1)
-    
+
     is_comparison = len(models) == 2
-    
+
     # Parse model specs
     model_configs = []
     providers = {}
-    
+
     for model_spec in models:
         parts = model_spec.split("/", 1)
         if len(parts) != 2:
             console.print(f"[red]Invalid model spec: {model_spec}[/red]")
             console.print("Expected format: provider/model (e.g., openai/gpt-4o)")
             raise typer.Exit(1)
-        
+
         provider_str, model_name = parts
         try:
             provider_type = ProviderType(provider_str.lower())
@@ -533,34 +501,34 @@ def run_ocr(
             console.print(f"[red]Unknown provider: {provider_str}[/red]")
             console.print(f"Available: {[p.value for p in ProviderType]}")
             raise typer.Exit(1)
-        
+
         model_config = ModelConfig(
             provider=provider_type,
             model=model_name,
             alias=f"{provider_str}/{model_name}",
         )
         model_configs.append(model_config)
-        
+
         # Initialize provider
         provider = get_provider(model_config)
         providers[model_config.display_name] = provider
-    
+
     # Load dataset - supports JSONL or direct image/PDF file
     if not dataset.exists():
         console.print(f"[red]Dataset not found: {dataset}[/red]")
         raise typer.Exit(1)
-    
+
     # Check if input is a direct image/PDF file or JSONL dataset
     file_ext = dataset.suffix.lower()
     is_direct_file = file_ext in ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']
-    
+
     # Load output schema if provided
     user_output_schema = None
     if output_schema:
         if not output_schema.exists():
             console.print(f"[red]Output schema file not found: {output_schema}[/red]")
             raise typer.Exit(1)
-        
+
         try:
             with open(output_schema, 'r', encoding='utf-8') as f:
                 content = f.read().strip()
@@ -573,16 +541,16 @@ def run_ocr(
         except Exception as e:
             console.print(f"[red]Error reading output schema file: {e}[/red]")
             raise typer.Exit(1)
-    
+
     if is_direct_file:
         # Direct image/PDF file mode
         gt_data = {}
-        
+
         if ground_truth:
             if not ground_truth.exists():
                 console.print(f"[red]Ground truth file not found: {ground_truth}[/red]")
                 raise typer.Exit(1)
-            
+
             # Load ground truth (supports JSON)
             try:
                 with open(ground_truth, 'r', encoding='utf-8') as f:
@@ -592,61 +560,61 @@ def run_ocr(
                 raise typer.Exit(1)
         else:
             console.print("[yellow]Warning: No ground truth provided (-gt). Running inference only.[/yellow]")
-        
+
         # Create single test case from the file
         test_case = {
             "id": dataset.stem,  # Use filename without extension as ID
             "ground_truth": gt_data,
         }
-        
+
         # Add output schema to test case if provided
         if user_output_schema:
             test_case["output_schema"] = user_output_schema
-        
+
         # Set the appropriate path field based on file type
         if file_ext == '.pdf':
             test_case["pdf_path"] = str(dataset)
         else:
             test_case["image_path"] = str(dataset)
-        
+
         test_cases = [test_case]
         input_mode = f"Direct file: {dataset.name}"
-        
+
     else:
         # JSONL dataset mode
         if ground_truth:
             console.print("[yellow]Warning: -gt is ignored when using JSONL dataset (ground truth is in the file)[/yellow]")
-        
+
         with open(dataset, 'r', encoding='utf-8') as f:
             test_cases = [json.loads(line) for line in f if line.strip()]
-        
+
         # Apply output schema to all test cases if provided (overrides per-case schemas)
         if user_output_schema:
             for tc in test_cases:
                 tc["output_schema"] = user_output_schema
-        
+
         input_mode = f"Dataset: {dataset} ({len(test_cases)} items)"
-    
+
     if max_items:
         test_cases = test_cases[:max_items]
-    
+
     # Get schema config
     schema_config = get_schema_config(schema_type)
     schema_config["threshold"] = threshold
-    
+
     # Initialize capability with PDF settings
     capability = OCRCapability(
         schema_config=schema_config,
         pdf_dpi=pdf_dpi,
         pdf_max_pages=pdf_max_pages,
     )
-    
+
     # Count PDF files in dataset for display
     pdf_count = sum(
-        1 for tc in test_cases 
+        1 for tc in test_cases
         if tc.get("pdf_path") or tc.get("pdf_paths")
     )
-    
+
     # Print header
     console.print(f"\n[bold blue]DomainBench OCR Benchmark[/bold blue]")
     console.print(f"Mode: {'Comparison' if is_comparison else 'Single Model Evaluation'}")
@@ -659,14 +627,14 @@ def run_ocr(
         schema_preview = str(user_output_schema)[:80] + "..." if len(str(user_output_schema)) > 80 else str(user_output_schema)
         console.print(f"Output schema: [cyan]{output_schema.name}[/cyan]")
     console.print()
-    
+
     # Results storage
     results = []
     model_metrics = {m.display_name: {"scores": [], "total_time": 0} for m in model_configs}
-    
+
     if is_comparison:
         comparison_stats = {"A_wins": 0, "B_wins": 0, "ties": 0}
-    
+
     # Run benchmark
     with Progress(
         SpinnerColumn(),
@@ -677,20 +645,20 @@ def run_ocr(
         disable=not verbose,
     ) as progress:
         task = progress.add_task("Running OCR benchmark...", total=len(test_cases))
-        
+
         for idx, test_case in enumerate(test_cases):
             case_id = test_case.get("id", f"case_{idx}")
             ground_truth = test_case.get("ground_truth", {})
-            
+
             # Build messages with images
             messages = capability.build_messages(test_case, system_prompt="")
-            
+
             responses = {}
-            
+
             # Get response from each model
             for model_config in model_configs:
                 provider = providers[model_config.display_name]
-                
+
                 start_time = time.time()
                 try:
                     response = provider.chat_completion(
@@ -703,23 +671,23 @@ def run_ocr(
                 except Exception as e:
                     console.print(f"[yellow]Warning: {model_config.display_name} failed on {case_id}: {e}[/yellow]")
                     response_text = "{}"
-                
+
                 elapsed = (time.time() - start_time) * 1000  # ms
                 model_metrics[model_config.display_name]["total_time"] += elapsed
                 responses[model_config.display_name] = response_text
-            
+
             # Evaluate
             if is_comparison:
                 model_a = model_configs[0].display_name
                 model_b = model_configs[1].display_name
-                
+
                 eval_result = capability.evaluate_pair(
                     response_a=responses[model_a],
                     response_b=responses[model_b],
                     ground_truth=ground_truth,
                     schema_config=schema_config,
                 )
-                
+
                 # Track wins
                 winner = eval_result["winner"]
                 if winner == "A":
@@ -728,10 +696,10 @@ def run_ocr(
                     comparison_stats["B_wins"] += 1
                 else:
                     comparison_stats["ties"] += 1
-                
+
                 model_metrics[model_a]["scores"].append(eval_result["score_A"])
                 model_metrics[model_b]["scores"].append(eval_result["score_B"])
-                
+
                 result = {
                     "test_id": case_id,
                     "winner": winner,
@@ -755,9 +723,9 @@ def run_ocr(
                     ground_truth=ground_truth,
                     schema_config=schema_config,
                 )
-                
+
                 model_metrics[model_name]["scores"].append(eval_result["overall_score"])
-                
+
                 result = {
                     "test_id": case_id,
                     "score": eval_result["overall_score"],
@@ -766,10 +734,10 @@ def run_ocr(
                     "parsed_extraction": eval_result.get("parsed_result", {}),
                     "ground_truth": ground_truth,
                 }
-            
+
             results.append(result)
             progress.update(task, advance=1)
-    
+
     # Calculate summary statistics
     model_summaries = {}
     for model_config in model_configs:
@@ -781,7 +749,7 @@ def run_ocr(
             "max_score": max(scores) if scores else 0,
             "avg_time_ms": model_metrics[name]["total_time"] / len(test_cases) if test_cases else 0,
         }
-    
+
     # Determine overall winner for comparison mode
     overall_winner = None
     if is_comparison:
@@ -791,18 +759,18 @@ def run_ocr(
             overall_winner = model_configs[1].display_name
         else:
             overall_winner = "TIE"
-    
+
     # Display Results Summary
     console.print("\n[bold]Results Summary[/bold]")
     console.print("-" * 50)
-    
+
     summary_table = Table(title="Model Performance")
     summary_table.add_column("Model", style="cyan")
     summary_table.add_column("Avg Score", justify="right")
     summary_table.add_column("Min", justify="right")
     summary_table.add_column("Max", justify="right")
     summary_table.add_column("Avg Time (ms)", justify="right")
-    
+
     for model_config in model_configs:
         name = model_config.display_name
         summary = model_summaries[name]
@@ -813,9 +781,9 @@ def run_ocr(
             f"{summary['max_score']:.1f}%",
             f"{summary['avg_time_ms']:.0f}",
         )
-    
+
     console.print(summary_table)
-    
+
     # Display comparison results if in comparison mode
     if is_comparison:
         console.print()
@@ -824,10 +792,10 @@ def run_ocr(
         comparison_table.add_column("Wins", justify="right", style="green")
         comparison_table.add_column("Losses", justify="right", style="red")
         comparison_table.add_column("Ties", justify="right")
-        
+
         model_a_name = model_configs[0].display_name
         model_b_name = model_configs[1].display_name
-        
+
         comparison_table.add_row(
             model_a_name,
             str(comparison_stats["A_wins"]),
@@ -840,15 +808,15 @@ def run_ocr(
             str(comparison_stats["A_wins"]),
             str(comparison_stats["ties"]),
         )
-        
+
         console.print(comparison_table)
         console.print(f"\n[bold]Overall Winner: [green]{overall_winner}[/green][/bold]")
-    
+
     # Save results
     output.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = output / f"ocr_results_{timestamp}.json"
-    
+
     full_results = {
         "benchmark_type": "ocr",
         "timestamp": datetime.now().isoformat(),
@@ -865,35 +833,59 @@ def run_ocr(
         },
         "results": results,
     }
-    
+
     if is_comparison:
         full_results["summary"]["comparison"] = comparison_stats
         full_results["summary"]["overall_winner"] = overall_winner
-    
+
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(full_results, f, indent=2, ensure_ascii=False)
-    
+
     console.print(f"\n[green]✓ Results saved to: {output_file}[/green]")
-    
+
     # Also save a separate extraction-only file for easy inspection
     extraction_file = output / f"ocr_extractions_{timestamp}.json"
     extractions = []
-    
+
     for r in results:
         extraction_entry = {"test_id": r["test_id"]}
-        
+
         if is_comparison:
             extraction_entry["extractions"] = r.get("parsed_extractions", {})
         else:
             extraction_entry["extraction"] = r.get("parsed_extraction", {})
-        
+
         extraction_entry["ground_truth"] = r.get("ground_truth", {})
         extractions.append(extraction_entry)
-    
+
     with open(extraction_file, 'w', encoding='utf-8') as f:
         json.dump(extractions, f, indent=2, ensure_ascii=False)
-    
+
     console.print(f"[green]✓ Extractions saved to: {extraction_file}[/green]")
+
+
+# =============================================================================
+# GLOBAL COMMANDS
+# =============================================================================
+
+@app.command()
+def capabilities():
+    """
+    List available benchmark capabilities.
+    """
+    from rich.table import Table
+    from domainbench.capabilities import list_capabilities
+
+    table = Table(title="Available Capabilities")
+    table.add_column("Name", style="cyan")
+    table.add_column("Description")
+    table.add_column("Command", style="green")
+
+    for cap in list_capabilities():
+        cmd = f"domainbench {cap['name'].replace('_', '-')}"
+        table.add_row(cap["name"], cap["description"], cmd)
+
+    console.print(table)
 
 
 @app.command()
@@ -913,23 +905,23 @@ def compare(
 ):
     """
     Compare benchmark results from multiple benchmark runs.
-    
+
     Examples:
         domainbench compare results1.json results2.json
         domainbench compare gpt5_vs_gemini25.json claude45_vs_gpt5.json -f markdown
     """
     import json
     from rich.table import Table
-    
+
     all_results = []
     for result_path in results:
         if not result_path.exists():
             console.print(f"[red]File not found: {result_path}[/red]")
             raise typer.Exit(1)
-        
+
         with open(result_path, 'r', encoding='utf-8') as f:
             all_results.append(json.load(f))
-    
+
     if format == "table":
         table = Table(title="Benchmark Comparison")
         table.add_column("Benchmark", style="cyan")
@@ -937,15 +929,15 @@ def compare(
         table.add_column("Model A Wins", justify="right")
         table.add_column("Model B Wins", justify="right")
         table.add_column("Ties", justify="right")
-        
+
         for result in all_results:
             summary = result.get("summary", {})
             models = list(summary.get("models", {}).keys())
-            
+
             if len(models) >= 2:
                 m1_stats = summary["models"][models[0]]
                 m2_stats = summary["models"][models[1]]
-                
+
                 table.add_row(
                     result.get("benchmark_name", "Unknown"),
                     summary.get("overall_winner", "tie"),
@@ -953,9 +945,9 @@ def compare(
                     str(m2_stats.get("total_wins", 0)),
                     str(m1_stats.get("total_ties", 0)),
                 )
-        
+
         console.print(table)
-    
+
     elif format == "json":
         comparison = {"benchmarks": all_results}
         if output:
@@ -973,6 +965,11 @@ def version():
     """
     from domainbench import __version__
     console.print(f"DomainBench v{__version__}")
+
+
+# Register sub-apps
+app.add_typer(chat_app, name="chat")
+app.add_typer(ocr_app, name="ocr")
 
 
 def main():
