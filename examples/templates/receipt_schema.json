@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Receipt Extraction Schema",
+  "description": "Expected output format for receipt OCR extraction",
+  "type": "object",
+  "properties": {
+    "store_name": {
+      "type": "string",
+      "description": "Name of the store/merchant"
+    },
+    "store_address": {
+      "type": "string",
+      "description": "Store address if visible"
+    },
+    "date": {
+      "type": "string",
+      "description": "Transaction date (YYYY-MM-DD format preferred)"
+    },
+    "time": {
+      "type": "string",
+      "description": "Transaction time if visible"
+    },
+    "items": {
+      "type": "array",
+      "description": "Line items on the receipt",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Item name/description"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Quantity purchased"
+          },
+          "unit_price": {
+            "type": "number",
+            "description": "Price per unit"
+          },
+          "total_price": {
+            "type": "number",
+            "description": "Total price for this line"
+          }
+        },
+        "required": ["name", "total_price"]
+      }
+    },
+    "subtotal": {
+      "type": "number",
+      "description": "Subtotal before tax"
+    },
+    "tax": {
+      "type": "number",
+      "description": "Tax amount"
+    },
+    "total": {
+      "type": "number",
+      "description": "Final total amount"
+    },
+    "payment_method": {
+      "type": "string",
+      "description": "Payment method (cash, card, etc.)"
+    }
+  },
+  "required": ["items", "total"]
+}
