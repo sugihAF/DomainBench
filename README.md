@@ -4,13 +4,33 @@ A flexible LLM benchmarking framework for comparing models across multiple capab
 
 ## Features
 
-- **Multiple Capabilities**: Chat completion and OCR/Vision extraction benchmarks
-- **Compare LLM Models**: Side-by-side comparison of models with detailed metrics
-- **AI-Powered Domain Creation**: Generate custom chat domains from natural language descriptions
-- **Custom Domains**: Define your own evaluation domains or use built-in ones
-- **LLM-as-Judge**: Automated evaluation with swap-order mitigation (for chat)
-- **Schema-Aware Scoring**: Fuzzy matching with structure validation (for OCR)
-- **Rich Reporting**: JSON output with detailed metrics and comparisons
+### 1. Chat Completion Benchmark
+
+Multi-turn conversation benchmarks using **MT-Bench style evaluation** with LLM-as-Judge.
+
+- **Multi-turn conversations**: Test models on realistic scenarios with 3-6 user turns
+- **Pairwise comparison**: Compare 2+ models side-by-side on the same test cases
+- **LLM-as-Judge evaluation**: Automated scoring using a strong judge model (e.g., GPT-4o)
+- **Swap-order mitigation**: Reduces position bias by evaluating twice with swapped model positions
+- **Domain-specific**: Create custom domains with AI or use built-in ones (restaurant waiter, doctor assistant, etc.)
+- **Configurable criteria**: Define custom evaluation metrics (accuracy, helpfulness, tone, safety, etc.)
+
+**[Read detailed documentation →](domainbench/capabilities/chat_completion/README.md)**
+
+### 2. OCR/Vision Extraction Benchmark
+
+Document and image extraction benchmarks with **schema-aware fuzzy matching**.
+
+- **Single or pairwise evaluation**: Test one model against ground truth or compare two models head-to-head
+- **PDF & image support**: Handles PNG, JPG, PDF (auto-converts per page), and other formats
+- **Schema-aware scoring**: Two-part evaluation system:
+  - **Structure score (35%)**: JSON schema validation, required fields, type correctness
+  - **Content score (65%)**: Fuzzy string matching with configurable thresholds
+- **Identity-based matching**: Smart list comparison using IDs/keys for unordered data
+- **Configurable thresholds**: Adjust fuzzy matching sensitivity (0.5-1.0)
+- **Pre-built schemas**: Menu, receipt, and document extraction templates
+
+**[Read detailed documentation →](domainbench/capabilities/ocr/README.md)**
 
 ## Installation
 
@@ -174,13 +194,33 @@ pytest tests/
 - [ ] Web dashboard
 - [ ] More built-in domains
 
-## Contributing
+## References
 
-Contributions welcome! Please:
-1. Check the [capabilities documentation](domainbench/capabilities/) for architecture patterns
-2. Follow existing code style
-3. Add tests for new features
-4. Update relevant README files
+### Chat Completion Benchmark
+
+The chat completion benchmark implementation is based on the MT-Bench evaluation methodology:
+
+- **MT-Bench-101**: Multi-turn conversation benchmarking with LLM-as-Judge evaluation
+  - GitHub: [https://github.com/mtbench101/mt-bench-101](https://github.com/mtbench101/mt-bench-101)
+
+### OCR/Vision Extraction Benchmark
+
+The OCR evaluation approach draws from established work in:
+
+- **JSON Schema & contract validation**
+  - JSON Schema Specification: [https://json-schema.org/](https://json-schema.org/)
+
+- **Tree-based structured diffs**
+  - Zhang & Shasha, "Simple Fast Algorithms for the Editing Distance Between Trees and Related Problems" (1989)
+
+- **Entity resolution & bipartite matching**
+  - Kuhn, "The Hungarian Method for the Assignment Problem" (1955)
+
+- **OCR-tolerant string similarity**
+  - Ratcliff & Metzener, "Pattern Matching: The Gestalt Approach" (1988)
+
+- **Task-oriented information extraction evaluation**
+  - Sarawagi, "Information Extraction" (Foundations & Trends in Databases, 2008)
 
 ## License
 
