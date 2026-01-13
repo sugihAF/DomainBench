@@ -29,13 +29,61 @@ Model format: provider/model (e.g., openai/gpt-5.2, gemini/gemini-3-flash-previe
 # Chat completion sub-app
 chat_app = typer.Typer(
     name="chat",
-    help="Chat completion benchmarks - multi-turn conversations",
+    help="""Chat completion benchmarks - LLM conversational capabilities
+
+What it does:
+  Evaluates multi-turn chat conversations using LLM-as-Judge methodology.
+  Compares model responses across different scenarios and domains.
+
+Input needed:
+  - Dataset: JSONL file with test cases (conversations with expected behaviors)
+  - Models: 2+ models to compare (provider/model format)
+  - Domain: Predefined or custom domain configuration
+
+Output:
+  - Win/loss/tie statistics per model
+  - Detailed evaluation results with judge reasoning
+  - Response quality scores and comparison metrics
+
+Examples:
+  domainbench chat run -d dataset.jsonl -m openai/gpt-5.2 -m gemini/gemini-3-flash-preview
+  domainbench chat run -d dataset.jsonl -m openai/gpt-4o -m anthropic/claude-4.5-sonnet
+  domainbench chat generate -d restaurant_waiter -n 100 -o test_cases.jsonl
+  domainbench chat create-domain "medical assistant" --provider openai
+""",
 )
 
 # OCR sub-app
 ocr_app = typer.Typer(
     name="ocr",
-    help="OCR/Vision extraction benchmarks - document and image processing",
+    help="""OCR/Vision extraction benchmarks - Document and image data extraction
+
+What it does:
+  Evaluates structured data extraction from images and PDFs (menus, receipts, documents).
+  Uses fuzzy matching against ground truth (not LLM-as-Judge).
+  Supports single model evaluation or pairwise comparison.
+
+Input needed:
+  - Dataset: JSONL file with image/PDF paths + ground truth, OR single image/PDF file
+  - Models: 1 model (evaluation) or 2 models (comparison)
+  - Ground truth: JSON file with expected extracted data (when using single file input)
+  - Schema: Extraction format (menu, receipt, document, or custom JSON schema)
+
+Output:
+  - Extraction accuracy scores (fuzzy match percentage)
+  - Field-level precision/recall metrics
+  - Head-to-head comparison results (when using 2 models)
+  - Parsed extraction data vs ground truth
+
+Note:
+  For complex extractions with many items, increase --max-tokens if responses are truncated.
+
+Examples:
+  domainbench ocr run -d dataset.jsonl -m openai/gpt-4o
+  domainbench ocr run -d menu.pdf -gt truth.json -so schema.json -m openai/gpt-4o
+  domainbench ocr run -d receipt.png -gt expected.json -m openai/gpt-4o -m gemini/gemini-2.5-flash
+  domainbench ocr run -d invoices.jsonl -m anthropic/claude-4.5-sonnet --max-tokens 32000
+""",
 )
 
 console = Console()
@@ -443,6 +491,10 @@ def ocr_run(
         True, "--verbose/--quiet", "-v/-q",
         help="Show detailed progress"
     ),
+    max_tokens: int = typer.Option(
+        16384, "--max-tokens",
+        help="Maximum tokens for model response (default: 16384, increase for complex extractions)"
+    ),
 ):
     """
     Run an OCR/Vision extraction benchmark.
@@ -665,9 +717,17 @@ def ocr_run(
                         model=model_config.model,
                         messages=messages,
                         temperature=0.1,
-                        max_tokens=4096,
+                        max_tokens=max_tokens,
                     )
                     response_text = response.get("content", "")
+
+                    # Check for potential truncation (incomplete JSON)
+                    if response_text.strip().startswith("{") or response_text.strip().startswith("```"):
+                        # Try to detect truncated JSON
+                        open_braces = response_text.count("{") - response_text.count("}")
+                        open_brackets = response_text.count("[") - response_text.count("]")
+                        if open_braces > 0 or open_brackets > 0:
+                            console.print(f"[yellow]Warning: {model_config.display_name} response may be truncated (unbalanced brackets). Consider increasing --max-tokens.[/yellow]")
                 except Exception as e:
                     console.print(f"[yellow]Warning: {model_config.display_name} failed on {case_id}: {e}[/yellow]")
                     response_text = "{}"
