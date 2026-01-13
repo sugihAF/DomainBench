@@ -13,16 +13,25 @@ from domainbench.capabilities.ocr import (
     RECEIPT_EXTRACTION_SCHEMA,
     DOCUMENT_EXTRACTION_SCHEMA,
 )
+from domainbench.capabilities.function_calling import (
+    FunctionCallingCapability,
+    parse_function_call,
+    validate_function_call,
+    validate_parallel_calls,
+    validate_multiple_calls,
+    validate_multi_turn,
+    validate_agentic_response,
+)
 
 
 def get_capability(name: str, **kwargs) -> BaseCapability:
     """
     Factory function to get a capability by name.
-    
+
     Args:
-        name: Capability name (e.g., "chat_completion", "ocr")
+        name: Capability name (e.g., "chat_completion", "ocr", "function_calling")
         **kwargs: Additional arguments passed to capability constructor
-        
+
     Returns:
         Initialized capability instance
     """
@@ -32,12 +41,15 @@ def get_capability(name: str, **kwargs) -> BaseCapability:
         "ocr": OCRCapability,
         "vision": OCRCapability,  # Alias
         "extraction": OCRCapability,  # Alias
+        "function_calling": FunctionCallingCapability,
+        "func_call": FunctionCallingCapability,  # Alias
+        "tools": FunctionCallingCapability,  # Alias
     }
-    
+
     capability_class = capability_map.get(name.lower())
     if capability_class is None:
         raise ValueError(f"Unknown capability: {name}. Available: {list(capability_map.keys())}")
-    
+
     return capability_class(**kwargs) if kwargs else capability_class()
 
 
@@ -46,6 +58,7 @@ def list_capabilities() -> list:
     return [
         {"name": "chat_completion", "description": "Multi-turn chat conversation benchmark"},
         {"name": "ocr", "description": "Vision-based structured data extraction benchmark (OCR)"},
+        {"name": "function_calling", "description": "Function/tool calling accuracy benchmark"},
     ]
 
 
@@ -53,6 +66,7 @@ __all__ = [
     "BaseCapability",
     "ChatCompletionCapability",
     "OCRCapability",
+    "FunctionCallingCapability",
     "get_capability",
     "list_capabilities",
     "calculate_extraction_accuracy",
@@ -61,4 +75,10 @@ __all__ = [
     "MENU_EXTRACTION_SCHEMA",
     "RECEIPT_EXTRACTION_SCHEMA",
     "DOCUMENT_EXTRACTION_SCHEMA",
+    "parse_function_call",
+    "validate_function_call",
+    "validate_parallel_calls",
+    "validate_multiple_calls",
+    "validate_multi_turn",
+    "validate_agentic_response",
 ]

@@ -32,6 +32,20 @@ Document and image extraction benchmarks with **schema-aware fuzzy matching**.
 
 **[Read detailed documentation →](domainbench/capabilities/ocr/README.md)**
 
+### 3. Function Calling Benchmark
+
+Tool use and function calling benchmarks using **BFCL-style AST evaluation**.
+
+- **Five categories**: simple, parallel, multiple, multi-turn, and agentic function calls
+- **Single or pairwise evaluation**: Test one model or compare two models head-to-head
+- **AST-based validation**: Accurate parsing of Python function call syntax
+- **Order-aware matching**: Order-independent for parallel, order-dependent for multiple calls
+- **State tracking**: Multi-turn conversations with state validation
+- **Pre-built domains**: Weather API and more templates included
+- **Custom functions**: Define your own function schemas (OpenAI format)
+
+**[Read detailed documentation →](domainbench/capabilities/function_calling/README.md)**
+
 ## Installation
 
 ```bash
@@ -88,6 +102,22 @@ domainbench ocr run -d dataset.jsonl -m openai/gpt-4o -m gemini/gemini-2.5-flash
 
 See [capabilities/ocr/README.md](domainbench/capabilities/ocr/README.md) for detailed documentation.
 
+#### **Function Calling Benchmarks**
+Tool use benchmarks with AST-based evaluation across multiple categories.
+
+```bash
+# Generate test cases from pre-built domain
+domainbench func-call generate -d weather_api -n 100 -c simple -o dataset.jsonl
+
+# Run single model evaluation
+domainbench func-call run -d dataset.jsonl -m openai/gpt-4o
+
+# Compare two models
+domainbench func-call run -d dataset.jsonl -m openai/gpt-4o -m anthropic/claude-sonnet-4
+```
+
+See [capabilities/function_calling/README.md](domainbench/capabilities/function_calling/README.md) for detailed documentation.
+
 ## CLI Overview
 
 ### Main Commands
@@ -106,6 +136,7 @@ Each capability has its own set of commands:
 ```bash
 domainbench chat --help              # Chat completion commands
 domainbench ocr --help               # OCR/Vision commands
+domainbench func-call --help         # Function calling commands
 ```
 
 ## Supported Providers & Models
@@ -126,8 +157,12 @@ domainbench/
 │   ├── chat_completion/   # Chat completion benchmarks
 │   │   ├── README.md      # Detailed chat documentation
 │   │   └── ...
-│   └── ocr/               # OCR/Vision benchmarks
-│       ├── README.md      # Detailed OCR documentation
+│   ├── ocr/               # OCR/Vision benchmarks
+│   │   ├── README.md      # Detailed OCR documentation
+│   │   └── ...
+│   └── function_calling/  # Function calling benchmarks
+│       ├── README.md      # Detailed function calling documentation
+│       ├── checkers/      # AST and validation checkers
 │       └── ...
 ├── core/                  # Engine, config, evaluator
 ├── providers/             # LLM API adapters
@@ -160,6 +195,19 @@ Features:
 - Fuzzy text matching with configurable thresholds
 - Structure and content scoring
 
+### Function Calling
+Tool use and function calling benchmarks with AST-based evaluation.
+
+**[Read full documentation →](domainbench/capabilities/function_calling/README.md)**
+
+Features:
+- Five categories: simple, parallel, multiple, multi-turn, agentic
+- Single model evaluation or head-to-head comparison
+- AST-based Python function call parsing
+- Order-aware matching (parallel vs sequential)
+- State tracking for multi-turn conversations
+- Pre-built domains (Weather API) and custom function support
+
 ## Comparing Results
 
 Compare multiple benchmark runs:
@@ -188,7 +236,7 @@ pytest tests/
 
 - [x] Chat completion benchmark
 - [x] Vision/OCR benchmark
-- [ ] Function calling benchmark
+- [x] Function calling benchmark
 - [ ] Structured output benchmark
 - [ ] Code execution benchmark
 - [ ] Web dashboard
@@ -221,6 +269,24 @@ The OCR evaluation approach draws from established work in:
 
 - **Task-oriented information extraction evaluation**
   - Sarawagi, "Information Extraction" (Foundations & Trends in Databases, 2008)
+
+### Function Calling Benchmark
+
+The function calling evaluation methodology is adapted from:
+
+- **Berkeley Function-Calling Leaderboard (BFCL)**
+  - GitHub: [https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard](https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard)
+  - Paper: Patil et al., "Gorilla: Large Language Model Connected with Massive APIs" (2023)
+
+- **AST-based function call parsing**
+  - Python Abstract Syntax Trees: [https://docs.python.org/3/library/ast.html](https://docs.python.org/3/library/ast.html)
+
+- **Function call evaluation categories**
+  - Simple: Single function call validation
+  - Parallel: Order-independent multiple calls
+  - Multiple: Order-dependent sequential calls
+  - Multi-turn: Stateful conversation tracking
+  - Agentic: Response quality assessment
 
 ## License
 
