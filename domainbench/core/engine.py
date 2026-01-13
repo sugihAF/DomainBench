@@ -361,7 +361,7 @@ class BenchmarkEngine:
         """Save results to file"""
         if path is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            path = f"{self.config.output.directory}/results_{timestamp}.json"
+            path = f"{self.config.output.directory}/chat_results_{timestamp}.json"
         
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         

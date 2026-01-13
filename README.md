@@ -4,12 +4,33 @@ A flexible LLM benchmarking framework for comparing models across multiple capab
 
 ## Features
 
-- **Compare LLM Models**: Side-by-side comparison of 2+ models
-- **Multiple Capabilities**: Chat completion, function calling, structured output (expanding)
-- **AI-Powered Domain Creation**: Generate custom domains from natural language descriptions
-- **Custom Domains**: Define your own evaluation domains or use built-in ones
-- **LLM-as-Judge**: Automated evaluation with swap-order mitigation
-- **Rich Reporting**: JSON, Markdown, and table output formats
+### 1. Chat Completion Benchmark
+
+Multi-turn conversation benchmarks using **MT-Bench style evaluation** with LLM-as-Judge.
+
+- **Multi-turn conversations**: Test models on realistic scenarios with 3-6 user turns
+- **Pairwise comparison**: Compare 2+ models side-by-side on the same test cases
+- **LLM-as-Judge evaluation**: Automated scoring using a strong judge model (e.g., GPT-4o)
+- **Swap-order mitigation**: Reduces position bias by evaluating twice with swapped model positions
+- **Domain-specific**: Create custom domains with AI or use built-in ones (restaurant waiter, doctor assistant, etc.)
+- **Configurable criteria**: Define custom evaluation metrics (accuracy, helpfulness, tone, safety, etc.)
+
+**[Read detailed documentation →](domainbench/capabilities/chat_completion/README.md)**
+
+### 2. OCR/Vision Extraction Benchmark
+
+Document and image extraction benchmarks with **schema-aware fuzzy matching**.
+
+- **Single or pairwise evaluation**: Test one model against ground truth or compare two models head-to-head
+- **PDF & image support**: Handles PNG, JPG, PDF (auto-converts per page), and other formats
+- **Schema-aware scoring**: Two-part evaluation system:
+  - **Structure score (35%)**: JSON schema validation, required fields, type correctness
+  - **Content score (65%)**: Fuzzy string matching with configurable thresholds
+- **Identity-based matching**: Smart list comparison using IDs/keys for unordered data
+- **Configurable thresholds**: Adjust fuzzy matching sensitivity (0.5-1.0)
+- **Pre-built schemas**: Menu, receipt, and document extraction templates
+
+**[Read detailed documentation →](domainbench/capabilities/ocr/README.md)**
 
 ## Installation
 
@@ -34,236 +55,134 @@ Create a `.env` file or export variables:
 ```bash
 export OPENAI_API_KEY=your_openai_key
 export GEMINI_API_KEY=your_gemini_key
-export ANTHROPIC_API_KEY=your_anthropic_key  # if using Claude
+export ANTHROPIC_API_KEY=your_anthropic_key
 ```
 
-### 2. Generate test cases
+### 2. Choose your capability
+
+DomainBench is organized by capability type:
+
+#### **Chat Completion Benchmarks**
+Multi-turn conversation benchmarks with LLM-as-Judge evaluation.
 
 ```bash
-# Generate 100 restaurant waiter scenarios
-domainbench generate -d restaurant_waiter -n 100 -o dataset.jsonl
+# Generate test cases
+domainbench chat generate -d restaurant_waiter -n 100 -o dataset.jsonl
+
+# Run benchmark
+domainbench chat run -d dataset.jsonl -m openai/gpt-4o -m gemini/gemini-2.0-flash
 ```
 
-### 3. Run a benchmark
+See [capabilities/chat_completion/README.md](domainbench/capabilities/chat_completion/README.md) for detailed documentation.
+
+#### **OCR/Vision Benchmarks**
+Document and image extraction benchmarks with schema-aware evaluation.
 
 ```bash
-# Compare GPT-4o vs Gemini Flash
-domainbench run \
-  -d dataset.jsonl \
-  -m openai/gpt-4o \
-  -m gemini/gemini-2.0-flash \
-  --domain restaurant_waiter \
-  --judge gpt-4o
+# Run single model evaluation
+domainbench ocr run -d menu.pdf -gt truth.json -m openai/gpt-4o
+
+# Compare two models
+domainbench ocr run -d dataset.jsonl -m openai/gpt-4o -m gemini/gemini-2.5-flash
 ```
 
-### 4. View results
+See [capabilities/ocr/README.md](domainbench/capabilities/ocr/README.md) for detailed documentation.
 
-Results are saved to `./results/` by default. You can also use:
+## CLI Overview
+
+### Main Commands
 
 ```bash
-# Compare multiple result files
-domainbench compare results/results_*.json
+domainbench --help                    # Show main help
+domainbench capabilities              # List available capabilities
+domainbench compare <results...>      # Compare benchmark results
+domainbench version                   # Show version info
 ```
 
-## CLI Commands
+### Capability Commands
 
-| Command | Description |
-|---------|-------------|
-| `domainbench run` | Run a chat benchmark comparing models |
-| `domainbench run-ocr` | Run an OCR/vision extraction benchmark |
-| `domainbench generate` | Generate test cases for a domain |
-| `domainbench create-domain` | Create a new domain using AI |
-| `domainbench domains` | List available domains |
-| `domainbench capabilities` | List available benchmark capabilities |
-| `domainbench compare` | Compare benchmark results |
-| `domainbench version` | Show version info |
-
-## Usage Examples
-
-### Using a config file
+Each capability has its own set of commands:
 
 ```bash
-domainbench run --config benchmark_config.yaml --dataset dataset.jsonl
+domainbench chat --help              # Chat completion commands
+domainbench ocr --help               # OCR/Vision commands
 ```
 
-### Quick comparison with inline options
+## Supported Providers & Models
 
-```bash
-domainbench run \
-  -d waiterbench.jsonl \
-  -m openai/gpt-4o \
-  -m anthropic/claude-sonnet-4-20250514 \
-  --domain restaurant_waiter \
-  --max-items 20
-```
+| Provider | Models | Status |
+|----------|--------|--------|
+| **OpenAI** | gpt-4o, gpt-4.1, gpt-5, gpt-5.2, o1, o3, o4-mini | ✅ Ready |
+| **Google Gemini** | gemini-2.0-flash, gemini-2.5-pro/flash, gemini-3-pro/flash-preview | ✅ Ready |
+| **Anthropic** | claude-3-5-sonnet, claude-sonnet-4, claude-4.5-opus/sonnet/haiku | ✅ Ready |
+
+**Model format**: `provider/model` (e.g., `openai/gpt-5.2`, `gemini/gemini-3-flash-preview`)
 
 ## Project Structure
 
 ```
 domainbench/
-├── core/           # Engine, config, evaluator, reporter
-├── providers/      # LLM API adapters (OpenAI, Gemini, Anthropic)
-├── capabilities/   # Benchmark types (chat_completion, etc.)
-├── domains/        # Domain definitions and generators
-└── cli.py          # Command line interface
+├── capabilities/           # Benchmark capabilities
+│   ├── chat_completion/   # Chat completion benchmarks
+│   │   ├── README.md      # Detailed chat documentation
+│   │   └── ...
+│   └── ocr/               # OCR/Vision benchmarks
+│       ├── README.md      # Detailed OCR documentation
+│       └── ...
+├── core/                  # Engine, config, evaluator
+├── providers/             # LLM API adapters
+├── domains/               # Domain definitions
+└── cli.py                 # Command line interface
 ```
 
-## Creating Custom Domains
+## Capabilities Documentation
 
-### Option 1: AI-Powered Creation (Recommended)
+### Chat Completion
+Multi-turn conversation benchmarks with domain-specific evaluation criteria and LLM-as-Judge scoring.
 
-Create a complete domain with AI by simply describing what you want:
+**[Read full documentation →](domainbench/capabilities/chat_completion/README.md)**
+
+Features:
+- Create custom domains with AI
+- Generate multi-turn test cases
+- LLM-as-Judge evaluation with swap mitigation
+- Domain-specific personas and criteria
+
+### OCR/Vision Extraction
+Document and image extraction benchmarks with schema-aware fuzzy matching.
+
+**[Read full documentation →](domainbench/capabilities/ocr/README.md)**
+
+Features:
+- Single model evaluation or head-to-head comparison
+- PDF and image support (PNG, JPG, etc.)
+- Schema-aware JSON validation
+- Fuzzy text matching with configurable thresholds
+- Structure and content scoring
+
+## Comparing Results
+
+Compare multiple benchmark runs:
 
 ```bash
-# Create a doctor assistant domain
-domainbench create-domain "doctor assistant"
-
-# Create with a different provider/model
-domainbench create-domain "banking customer service" --provider anthropic --model claude-sonnet-4-20250514
-
-# Save to a custom directory
-domainbench create-domain "tech support agent" -o ./my_domains
+domainbench compare results/run1.json results/run2.json
+domainbench compare results/*.json --format markdown -o comparison.md
 ```
 
-This automatically generates:
-- `domain.yaml` - System prompt, personas, evaluation criteria
-- `generator.py` - Test case generator with 10-15 categories
-- `__init__.py` - Module exports
+## Development
 
-Then use your new domain:
+### Running Tests
 
 ```bash
-# Generate test cases
-domainbench generate -d doctor_assistant -n 100 -o doctor_test.jsonl
-
-# Run benchmark
-domainbench run -d doctor_test.jsonl -m openai/gpt-4o -m gemini/gemini-2.0-flash --domain doctor_assistant
+pytest tests/
 ```
 
-### Option 2: Manual Creation
+### Adding a New Capability
 
-Create a `domain.yaml` file manually:
-
-```yaml
-domain:
-  name: "My Custom Domain"
-  description: "Description of your domain"
-  version: "1.0"
-  
-  system_prompt: |
-    Your system prompt here...
-  
-  evaluation_criteria:
-    - metric: "accuracy"
-      weight: 0.5
-    - metric: "helpfulness"
-      weight: 0.5
-```
-
-Then use it:
-
-```bash
-domainbench run -d dataset.jsonl -m openai/gpt-4o -m gemini/gemini-2.0-flash --domain ./my_domain/
-```
-
-### create-domain Options
-
-| Option | Description |
-|--------|-------------|
-| `DESCRIPTION` | Domain description (e.g., "doctor assistant") |
-| `-p, --provider` | LLM provider for generation (default: openai) |
-| `-m, --model` | Model to use (default: gpt-4.1-2025-04-14) |
-| `-o, --output-dir` | Custom output directory |
-
-## Supported Providers
-
-| Provider | Models | Status |
-|----------|--------|--------|
-| OpenAI | gpt-4o, gpt-4-turbo, gpt-3.5-turbo | ✅ Ready |
-| Google Gemini | gemini-2.0-flash, gemini-1.5-pro | ✅ Ready |
-| Anthropic | claude-3-opus, claude-sonnet-4-20250514 | ✅ Ready |
-| Ollama | Local models | 🚧 Planned |
-
-## How It Works
-
-### MT-Bench Style Evaluation
-
-This framework uses an **MT-Bench style** approach:
-
-1. **Multi-turn conversations**: Real scenarios with 3-6 user turns
-2. **Pairwise comparison**: Two models respond to the same scenario
-3. **LLM-as-Judge**: A strong model (e.g., GPT-4o) evaluates responses
-4. **Swap mitigation**: Run comparison twice with swapped order to reduce position bias
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Test Case                               │
-│  User: "Table for 2, we're in a hurry"                      │
-│  User: "What's the fastest dish?"                           │
-│  User: "Any gluten-free options?"                           │
-└─────────────────────────────────────────────────────────────┘
-                           │
-           ┌───────────────┼───────────────┐
-           ▼                               ▼
-    ┌─────────────┐                 ┌─────────────┐
-    │   Model A   │                 │   Model B   │
-    │   (GPT-4o)  │                 │  (Gemini)   │
-    └─────────────┘                 └─────────────┘
-           │                               │
-           └───────────────┬───────────────┘
-                           ▼
-                  ┌─────────────┐
-                  │    Judge    │
-                  │  (GPT-4o)   │
-                  └─────────────┘
-                           │
-                           ▼
-            Winner: A / B / Tie + Scores
-```
-
-## OCR/Vision Benchmark
-
-Benchmark vision models on structured data extraction tasks (menus, receipts, documents).
-
-### Single Model Evaluation
-
-Evaluate one model against ground truth:
-
-```bash
-domainbench run-ocr -d menu_dataset.jsonl -m openai/gpt-4o
-```
-
-### Two Model Comparison
-
-Compare two models head-to-head:
-
-```bash
-domainbench run-ocr -d menu_dataset.jsonl -m openai/gpt-4o -m gemini/gemini-2.0-flash
-```
-
-### OCR Options
-
-| Option | Description |
-|--------|-------------|
-| `-d, --dataset` | JSONL file with image paths and ground truth |
-| `-m, --models` | 1 model (single eval) or 2 models (comparison) |
-| `-s, --schema` | Schema type: `menu`, `receipt`, `document` |
-| `-t, --threshold` | Fuzzy match threshold (default: 0.7) |
-| `--max-items` | Limit number of test cases |
-
-### Dataset Format
-
-```json
-{"id": "001", "image_path": "menu.png", "ground_truth": {"items": [...], "categories": [...]}}
-{"id": "002", "image_paths": ["page1.png", "page2.png"], "ground_truth": {...}}
-```
-
-### Evaluation Metrics
-
-- **Precision**: % of extracted items that are correct
-- **Recall**: % of ground truth items found
-- **F1 Score**: Harmonic mean of precision and recall
-- Uses fuzzy text matching (configurable threshold)
+1. Create a new directory in `domainbench/capabilities/`
+2. Implement `BaseCapability` interface
+3. Add CLI commands to `cli.py`
+4. Create detailed README.md documentation
 
 ## Roadmap
 
@@ -275,14 +194,39 @@ domainbench run-ocr -d menu_dataset.jsonl -m openai/gpt-4o -m gemini/gemini-2.0-
 - [ ] Web dashboard
 - [ ] More built-in domains
 
-## Development
+## References
 
-See [plan.md](plan.md) for the full development roadmap and architecture details.
+### Chat Completion Benchmark
+
+The chat completion benchmark implementation is based on the MT-Bench evaluation methodology:
+
+- **MT-Bench-101**: Multi-turn conversation benchmarking with LLM-as-Judge evaluation
+  - GitHub: [https://github.com/mtbench101/mt-bench-101](https://github.com/mtbench101/mt-bench-101)
+
+### OCR/Vision Extraction Benchmark
+
+The OCR evaluation approach draws from established work in:
+
+- **JSON Schema & contract validation**
+  - JSON Schema Specification: [https://json-schema.org/](https://json-schema.org/)
+
+- **Tree-based structured diffs**
+  - Zhang & Shasha, "Simple Fast Algorithms for the Editing Distance Between Trees and Related Problems" (1989)
+
+- **Entity resolution & bipartite matching**
+  - Kuhn, "The Hungarian Method for the Assignment Problem" (1955)
+
+- **OCR-tolerant string similarity**
+  - Ratcliff & Metzener, "Pattern Matching: The Gestalt Approach" (1988)
+
+- **Task-oriented information extraction evaluation**
+  - Sarawagi, "Information Extraction" (Foundations & Trends in Databases, 2008)
 
 ## License
 
 MIT License
 
-## Contributing
+## Support
 
-Contributions welcome! Please read the plan.md for architecture guidelines.
+- **Issues**: [GitHub Issues](https://github.com/sugihAF/DomainBench/issues)
+- **Documentation**: See capability-specific READMEs in `domainbench/capabilities/`

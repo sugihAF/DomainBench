@@ -1130,19 +1130,36 @@ Be thorough and accurate - extract ALL visible items."""
     ) -> Dict[str, Any]:
         """
         Evaluate a single model's extraction against ground truth.
-        
+
         Args:
             response: Model's raw response
             ground_truth: Expected extraction result
-            schema_config: Optional schema configuration
-            
+            schema_config: Optional schema configuration (for threshold, etc.)
+
         Returns:
             Dict with accuracy metrics
         """
         parsed = self.parse_response(response)
-        
-        config = schema_config or self.schema_config
-        metrics = calculate_extraction_accuracy(parsed, ground_truth, config)
+
+        # Build SchemaScoreConfig from schema_config if provided
+        config = schema_config or self.schema_config or {}
+
+        # Extract threshold if provided in config
+        score_config = SchemaScoreConfig()
+        if "threshold" in config:
+            # Use threshold as the minimum match threshold for unordered lists
+            score_config = SchemaScoreConfig(
+                unordered_min_match=config.get("threshold", 0.30)
+            )
+
+        # Let the function infer JSON Schema from ground truth
+        # Pass score_config for similarity matching parameters
+        metrics = calculate_extraction_accuracy(
+            parsed,
+            ground_truth,
+            schema=None,  # Infer from ground truth
+            score_config=score_config
+        )
         
         return {
             "parsed_result": parsed,
