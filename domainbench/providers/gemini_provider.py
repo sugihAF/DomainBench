@@ -31,7 +31,7 @@ class GeminiProvider(BaseProvider):
     """
     
     name = "gemini"
-    supported_features = ["chat_completion", "vision"]
+    supported_features = ["chat_completion", "function_calling", "vision"]
     
     def __init__(self, api_key_env: Optional[str] = None):
         super().__init__(api_key_env)
@@ -313,15 +313,175 @@ class GeminiProvider(BaseProvider):
                 )
         except Exception as e:
             raise RuntimeError(f"Gemini vision API error: {e}")
-        
+
         text = getattr(response, "text", None)
         if text is None:
             text = str(response)
-        
+
         usage = self._extract_usage(response)
-        
+
         return {
             "content": text,
+            "usage": usage,
+            "raw": response,
+        }
+
+    def function_call(
+        self,
+        model: str,
+        messages: List[Dict[str, Any]],
+        functions: List[Dict[str, Any]],
+        temperature: float = 0.2,
+        max_tokens: Optional[int] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """
+        Send a function calling request to Gemini.
+
+        Args:
+            model: Model identifier
+            messages: List of message dicts
+            functions: List of function definitions (OpenAI format)
+            temperature: Sampling temperature
+            max_tokens: Maximum output tokens
+            **kwargs: Additional options
+
+        Returns:
+            Dict with content, tool_calls, usage, and raw response
+        """
+        import json
+        from google.genai import types
+
+        # Convert functions to Gemini tool format
+        function_declarations = []
+        for func in functions:
+            # Convert OpenAI function schema to Gemini format
+            params = func.get("parameters", {})
+
+            # Build Gemini-compatible schema
+            gemini_params = {}
+            if params.get("type") == "object" and "properties" in params:
+                gemini_params = {
+                    "type": "OBJECT",
+                    "properties": {},
+                    "required": params.get("required", []),
+                }
+                for prop_name, prop_def in params.get("properties", {}).items():
+                    prop_type = prop_def.get("type", "string").upper()
+                    if prop_type == "INTEGER":
+                        prop_type = "NUMBER"
+                    gemini_params["properties"][prop_name] = {
+                        "type": prop_type,
+                        "description": prop_def.get("description", ""),
+                    }
+                    if "enum" in prop_def:
+                        gemini_params["properties"][prop_name]["enum"] = prop_def["enum"]
+
+            function_declarations.append(
+                types.FunctionDeclaration(
+                    name=func["name"],
+                    description=func.get("description", ""),
+                    parameters=gemini_params if gemini_params else None,
+                )
+            )
+
+        # Create tool with functions
+        tool = types.Tool(function_declarations=function_declarations)
+
+        # Build content parts from messages
+        parts = []
+        system_instruction = None
+
+        for message in messages:
+            role = message.get("role", "user")
+            content = message.get("content", "")
+
+            if role == "system":
+                system_instruction = content if isinstance(content, str) else str(content)
+            elif isinstance(content, str):
+                parts.append(types.Part.from_text(text=content))
+            elif isinstance(content, list):
+                for item in content:
+                    if isinstance(item, str):
+                        parts.append(types.Part.from_text(text=item))
+                    elif isinstance(item, dict) and item.get("type") == "text":
+                        parts.append(types.Part.from_text(text=item.get("text", "")))
+
+        # Create content
+        contents = [types.Content(role="user", parts=parts)]
+
+        # Build generation config
+        gen_config = {
+            "temperature": temperature,
+        }
+        if max_tokens:
+            gen_config["max_output_tokens"] = max_tokens
+
+        try:
+            if system_instruction:
+                response = self.client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        tools=[tool],
+                        **gen_config,
+                    ),
+                )
+            else:
+                response = self.client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        tools=[tool],
+                        **gen_config,
+                    ),
+                )
+        except Exception as e:
+            raise RuntimeError(f"Gemini function call API error: {e}")
+
+        # Extract function calls from response
+        tool_calls = []
+        content = ""
+
+        if hasattr(response, "candidates") and response.candidates:
+            for candidate in response.candidates:
+                if hasattr(candidate, "content") and hasattr(candidate.content, "parts"):
+                    for part in candidate.content.parts:
+                        # Check for function call
+                        if hasattr(part, "function_call") and part.function_call:
+                            fc = part.function_call
+                            # Convert args to dict
+                            args_dict = {}
+                            if hasattr(fc, "args") and fc.args:
+                                # fc.args might be a Struct or dict-like object
+                                if hasattr(fc.args, "items"):
+                                    args_dict = dict(fc.args.items())
+                                elif isinstance(fc.args, dict):
+                                    args_dict = fc.args
+                                else:
+                                    # Try to convert to dict
+                                    try:
+                                        args_dict = dict(fc.args)
+                                    except (TypeError, ValueError):
+                                        args_dict = {}
+
+                            tool_calls.append({
+                                "id": f"call_{len(tool_calls)}",
+                                "function": {
+                                    "name": fc.name,
+                                    "arguments": json.dumps(args_dict),
+                                },
+                            })
+                        # Check for text content
+                        elif hasattr(part, "text") and part.text:
+                            content += part.text
+
+        usage = self._extract_usage(response)
+
+        return {
+            "content": content,
+            "tool_calls": tool_calls,
             "usage": usage,
             "raw": response,
         }

@@ -13,8 +13,9 @@ app = typer.Typer(
     help="""DomainBench - LLM Benchmarking Framework
 
 Organized by capability type:
-  chat - Chat completion benchmarks
-  ocr  - OCR/Vision extraction benchmarks
+  chat      - Chat completion benchmarks
+  ocr       - OCR/Vision extraction benchmarks
+  func-call - Function calling benchmarks
 
 Supported Providers & Models:
   OpenAI:     gpt-4o, gpt-4.1, gpt-5, gpt-5.2, o1, o3, o4-mini
@@ -83,6 +84,57 @@ Examples:
   domainbench ocr run -d menu.pdf -gt truth.json -so schema.json -m openai/gpt-4o
   domainbench ocr run -d receipt.png -gt expected.json -m openai/gpt-4o -m gemini/gemini-2.5-flash
   domainbench ocr run -d invoices.jsonl -m anthropic/claude-4.5-sonnet --max-tokens 32000
+""",
+)
+
+# Function calling sub-app
+func_call_app = typer.Typer(
+    name="func-call",
+    help="""Function calling benchmarks - LLM tool use accuracy
+
+What it does:
+  Evaluates function/tool calling capabilities using AST-based validation.
+  Adapted from Berkeley Function Call Leaderboard (BFCL) algorithm.
+  Supports single model evaluation or pairwise comparison.
+
+Categories:
+  - simple: Single function call validation
+  - parallel: Multiple independent function calls (order doesn't matter)
+  - multiple: Same function called multiple times (order matters)
+  - multi_turn: Sequential conversation with state tracking
+  - agentic: Complex multi-step tasks with text response validation
+
+Input needed:
+  - Dataset: JSONL file with test cases (queries + expected function calls)
+  - Models: 1 model (evaluation) or 2 models (comparison)
+  - Category: Which evaluation type to run (auto-detected from dataset if not specified)
+
+Output:
+  - Accuracy scores per category
+  - Detailed error analysis
+  - Head-to-head comparison results (when using 2 models)
+
+Examples:
+  domainbench func-call run -d dataset.jsonl -m openai/gpt-4o
+  domainbench func-call run -d dataset.jsonl -m openai/gpt-4o -m anthropic/claude-sonnet-4 -c parallel
+  domainbench func-call generate -d weather_api -n 100 -o test_cases.jsonl
+  domainbench func-call domains
+  domainbench func-call domain generate -n "Restaurant Waiter" -d "Restaurant ordering API"
+""",
+)
+
+# Function calling domain sub-app
+func_call_domain_app = typer.Typer(
+    name="domain",
+    help="""Manage function calling domains - Create new domains with AI
+
+Commands:
+  generate  Create a new function calling domain using AI
+  list      List all available function calling domains
+
+Examples:
+  domainbench func-call domain generate -n "Restaurant Waiter" -d "Restaurant ordering API"
+  domainbench func-call domain list
 """,
 )
 
@@ -925,6 +977,740 @@ def ocr_run(
 
 
 # =============================================================================
+# FUNCTION CALLING COMMANDS
+# =============================================================================
+
+@func_call_app.command("run")
+def func_call_run(
+    dataset: Path = typer.Option(
+        ..., "--dataset", "-d",
+        help="Path to dataset JSONL file with function calling test cases"
+    ),
+    models: List[str] = typer.Option(
+        ..., "--models", "-m",
+        help="Model(s) to benchmark (format: provider/model). Use 1 for single eval, 2 for comparison."
+    ),
+    category: Optional[str] = typer.Option(
+        None, "--category", "-c",
+        help="Evaluation category: simple, parallel, multiple, multi_turn, agentic (auto-detect if not specified)"
+    ),
+    output: Path = typer.Option(
+        Path("./results"), "--output", "-o",
+        help="Output directory for results"
+    ),
+    max_items: Optional[int] = typer.Option(
+        None, "--max-items",
+        help="Maximum number of test cases to run"
+    ),
+    strict: bool = typer.Option(
+        True, "--strict/--lenient",
+        help="Strict parameter matching (default: strict)"
+    ),
+    verbose: bool = typer.Option(
+        True, "--verbose/--quiet", "-v/-q",
+        help="Show detailed progress"
+    ),
+):
+    """
+    Run a function calling benchmark.
+
+    Evaluates LLM function/tool calling accuracy using AST-based validation.
+    Supports single model evaluation or two model comparison.
+
+    Examples:
+        domainbench func-call run -d dataset.jsonl -m openai/gpt-4o
+        domainbench func-call run -d dataset.jsonl -m openai/gpt-4o -m anthropic/claude-sonnet-4
+        domainbench func-call run -d dataset.jsonl -m openai/gpt-4o -c parallel
+    """
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    import json
+    import time
+    from datetime import datetime
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+    from rich.table import Table
+
+    from domainbench.core.config import ModelConfig, ProviderType
+    from domainbench.providers import get_provider
+    from domainbench.capabilities.function_calling import (
+        FunctionCallingCapability,
+    )
+    from domainbench.capabilities.function_calling.function_calling import (
+        calculate_category_scores,
+    )
+
+    # Validate model count
+    if len(models) < 1 or len(models) > 2:
+        console.print("[red]Error: Provide 1 model (single eval) or 2 models (comparison)[/red]")
+        raise typer.Exit(1)
+
+    is_comparison = len(models) == 2
+
+    # Parse model specs
+    model_configs = []
+    providers = {}
+
+    for model_spec in models:
+        parts = model_spec.split("/", 1)
+        if len(parts) != 2:
+            console.print(f"[red]Invalid model spec: {model_spec}[/red]")
+            console.print("Expected format: provider/model (e.g., openai/gpt-4o)")
+            raise typer.Exit(1)
+
+        provider_str, model_name = parts
+        try:
+            provider_type = ProviderType(provider_str.lower())
+        except ValueError:
+            console.print(f"[red]Unknown provider: {provider_str}[/red]")
+            console.print(f"Available: {[p.value for p in ProviderType]}")
+            raise typer.Exit(1)
+
+        model_config = ModelConfig(
+            provider=provider_type,
+            model=model_name,
+            alias=f"{provider_str}/{model_name}",
+        )
+        model_configs.append(model_config)
+
+        # Initialize provider
+        provider = get_provider(model_config)
+        providers[model_config.display_name] = provider
+
+    # Load dataset
+    if not dataset.exists():
+        console.print(f"[red]Dataset not found: {dataset}[/red]")
+        raise typer.Exit(1)
+
+    with open(dataset, 'r', encoding='utf-8') as f:
+        test_cases = [json.loads(line) for line in f if line.strip()]
+
+    if max_items:
+        test_cases = test_cases[:max_items]
+
+    # Detect category from dataset if not specified
+    if category is None:
+        categories_found = set(tc.get("category", "simple") for tc in test_cases)
+        if len(categories_found) == 1:
+            category = categories_found.pop()
+        else:
+            category = "mixed"
+
+    # Initialize capability
+    capability = FunctionCallingCapability(
+        category=category if category != "mixed" else "simple",
+        strict_mode=strict,
+    )
+
+    # Print header
+    console.print(f"\n[bold blue]DomainBench Function Calling Benchmark[/bold blue]")
+    console.print(f"Mode: {'Comparison' if is_comparison else 'Single Model Evaluation'}")
+    console.print(f"Dataset: {dataset} ({len(test_cases)} items)")
+    console.print(f"Category: {category}")
+    console.print(f"Models: {', '.join([m.display_name for m in model_configs])}")
+    console.print(f"Strict mode: {strict}")
+    console.print()
+
+    # Results storage
+    results = []
+    model_metrics = {m.display_name: {"scores": [], "total_time": 0, "correct": 0} for m in model_configs}
+
+    if is_comparison:
+        comparison_stats = {"A_wins": 0, "B_wins": 0, "ties": 0}
+
+    # Run benchmark
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        console=console,
+        disable=not verbose,
+    ) as progress:
+        task = progress.add_task("Running function calling benchmark...", total=len(test_cases))
+
+        for idx, test_case in enumerate(test_cases):
+            case_id = test_case.get("id", f"case_{idx}")
+            ground_truth = test_case.get("ground_truth", "")
+            functions = test_case.get("functions", [])
+            tc_category = test_case.get("category", category if category != "mixed" else "simple")
+
+            # Build messages
+            messages = capability.build_messages(test_case, system_prompt="")
+
+            responses = {}
+
+            # Get response from each model
+            for model_config in model_configs:
+                provider = providers[model_config.display_name]
+
+                start_time = time.time()
+                try:
+                    # Handle multi_turn category specially - make sequential API calls
+                    if tc_category == "multi_turn":
+                        turns = test_case.get("turns", [])
+                        turn_responses = []
+                        conversation = list(messages)  # Copy initial messages
+
+                        for turn_idx, turn in enumerate(turns):
+                            # For turn 0, messages already has the first query
+                            # For subsequent turns, add the query
+                            if turn_idx > 0:
+                                conversation.append({
+                                    "role": "user",
+                                    "content": turn.get("query", ""),
+                                })
+
+                            # Make API call for this turn
+                            if hasattr(provider, 'function_call') and functions:
+                                turn_response = provider.function_call(
+                                    model=model_config.model,
+                                    messages=conversation,
+                                    functions=functions,
+                                    temperature=0.1,
+                                )
+                            else:
+                                turn_response = provider.chat_completion(
+                                    model=model_config.model,
+                                    messages=conversation,
+                                    temperature=0.1,
+                                    tools=[{"type": "function", "function": f} for f in functions] if functions else None,
+                                )
+
+                            turn_responses.append(turn_response)
+
+                            # Add assistant response to conversation for next turn
+                            # Extract tool calls to build assistant message
+                            tool_calls = turn_response.get("tool_calls", [])
+                            assistant_content = turn_response.get("content", "")
+
+                            if tool_calls:
+                                # Build assistant message with tool calls
+                                # Ensure each tool_call has the required 'type' field for OpenAI API
+                                formatted_tool_calls = []
+                                for tc in tool_calls:
+                                    formatted_tc = {
+                                        "id": tc.get("id", f"call_{turn_idx}_{len(formatted_tool_calls)}"),
+                                        "type": "function",
+                                        "function": tc.get("function", {}),
+                                    }
+                                    formatted_tool_calls.append(formatted_tc)
+
+                                assistant_msg = {
+                                    "role": "assistant",
+                                    "content": assistant_content or None,
+                                    "tool_calls": formatted_tool_calls,
+                                }
+                                conversation.append(assistant_msg)
+
+                                # Add simulated tool responses (needed for conversation continuity)
+                                for tc in formatted_tool_calls:
+                                    tool_call_id = tc.get("id")
+                                    conversation.append({
+                                        "role": "tool",
+                                        "tool_call_id": tool_call_id,
+                                        "content": json.dumps({"status": "success"}),
+                                    })
+                            else:
+                                conversation.append({
+                                    "role": "assistant",
+                                    "content": assistant_content,
+                                })
+
+                        response = turn_responses  # List of responses, one per turn
+                    else:
+                        # Standard single-call handling for other categories
+                        if hasattr(provider, 'function_call') and functions:
+                            response = provider.function_call(
+                                model=model_config.model,
+                                messages=messages,
+                                functions=functions,
+                                temperature=0.1,
+                            )
+                        else:
+                            # Fallback to chat completion with tools
+                            response = provider.chat_completion(
+                                model=model_config.model,
+                                messages=messages,
+                                temperature=0.1,
+                                tools=[{"type": "function", "function": f} for f in functions] if functions else None,
+                            )
+                except Exception as e:
+                    console.print(f"[yellow]Warning: {model_config.display_name} failed on {case_id}: {e}[/yellow]")
+                    response = {"content": "", "tool_calls": []}
+
+                elapsed = (time.time() - start_time) * 1000  # ms
+                model_metrics[model_config.display_name]["total_time"] += elapsed
+                responses[model_config.display_name] = response
+
+            # Evaluate
+            if is_comparison:
+                model_a = model_configs[0].display_name
+                model_b = model_configs[1].display_name
+
+                eval_result = capability.evaluate_pair(
+                    response_a=responses[model_a],
+                    response_b=responses[model_b],
+                    ground_truth=ground_truth,
+                    test_case=test_case,
+                )
+
+                # Track wins
+                winner = eval_result["winner"]
+                if winner == "A":
+                    comparison_stats["A_wins"] += 1
+                elif winner == "B":
+                    comparison_stats["B_wins"] += 1
+                else:
+                    comparison_stats["ties"] += 1
+
+                model_metrics[model_a]["scores"].append(eval_result["score_A"])
+                model_metrics[model_b]["scores"].append(eval_result["score_B"])
+
+                if eval_result["eval_A"].get("is_correct"):
+                    model_metrics[model_a]["correct"] += 1
+                if eval_result["eval_B"].get("is_correct"):
+                    model_metrics[model_b]["correct"] += 1
+
+                result = {
+                    "test_id": case_id,
+                    "category": tc_category,
+                    "winner": winner,
+                    "scores": {model_a: eval_result["score_A"], model_b: eval_result["score_B"]},
+                    "is_correct": {
+                        model_a: eval_result["eval_A"].get("is_correct", False),
+                        model_b: eval_result["eval_B"].get("is_correct", False),
+                    },
+                    "errors": {
+                        model_a: eval_result["eval_A"].get("errors", []),
+                        model_b: eval_result["eval_B"].get("errors", []),
+                    },
+                    "reasons": eval_result.get("reasons", []),
+                }
+            else:
+                # Single model evaluation
+                model_name = model_configs[0].display_name
+                eval_result = capability.evaluate_single(
+                    response=responses[model_name],
+                    ground_truth=ground_truth,
+                    test_case=test_case,
+                )
+
+                model_metrics[model_name]["scores"].append(eval_result["score"])
+                if eval_result.get("is_correct"):
+                    model_metrics[model_name]["correct"] += 1
+
+                result = {
+                    "test_id": case_id,
+                    "category": tc_category,
+                    "is_correct": eval_result.get("is_correct", False),
+                    "score": eval_result["score"],
+                    "errors": eval_result.get("errors", []),
+                }
+
+            results.append(result)
+            progress.update(task, advance=1)
+
+    # Calculate summary statistics
+    model_summaries = {}
+    for model_config in model_configs:
+        name = model_config.display_name
+        scores = model_metrics[name]["scores"]
+        model_summaries[name] = {
+            "avg_score": sum(scores) / len(scores) if scores else 0,
+            "accuracy": (model_metrics[name]["correct"] / len(test_cases) * 100) if test_cases else 0,
+            "correct": model_metrics[name]["correct"],
+            "total": len(test_cases),
+            "avg_time_ms": model_metrics[name]["total_time"] / len(test_cases) if test_cases else 0,
+        }
+
+    # Determine overall winner for comparison mode
+    overall_winner = None
+    if is_comparison:
+        if comparison_stats["A_wins"] > comparison_stats["B_wins"]:
+            overall_winner = model_configs[0].display_name
+        elif comparison_stats["B_wins"] > comparison_stats["A_wins"]:
+            overall_winner = model_configs[1].display_name
+        else:
+            overall_winner = "TIE"
+
+    # Display Results Summary
+    console.print("\n[bold]Results Summary[/bold]")
+    console.print("-" * 50)
+
+    summary_table = Table(title="Model Performance")
+    summary_table.add_column("Model", style="cyan")
+    summary_table.add_column("Accuracy", justify="right")
+    summary_table.add_column("Correct", justify="right")
+    summary_table.add_column("Total", justify="right")
+    summary_table.add_column("Avg Time (ms)", justify="right")
+
+    for model_config in model_configs:
+        name = model_config.display_name
+        summary = model_summaries[name]
+        summary_table.add_row(
+            name,
+            f"{summary['accuracy']:.1f}%",
+            str(summary['correct']),
+            str(summary['total']),
+            f"{summary['avg_time_ms']:.0f}",
+        )
+
+    console.print(summary_table)
+
+    # Display comparison results if in comparison mode
+    if is_comparison:
+        console.print()
+        comparison_table = Table(title="Head-to-Head Comparison")
+        comparison_table.add_column("Model", style="cyan")
+        comparison_table.add_column("Wins", justify="right", style="green")
+        comparison_table.add_column("Losses", justify="right", style="red")
+        comparison_table.add_column("Ties", justify="right")
+
+        model_a_name = model_configs[0].display_name
+        model_b_name = model_configs[1].display_name
+
+        comparison_table.add_row(
+            model_a_name,
+            str(comparison_stats["A_wins"]),
+            str(comparison_stats["B_wins"]),
+            str(comparison_stats["ties"]),
+        )
+        comparison_table.add_row(
+            model_b_name,
+            str(comparison_stats["B_wins"]),
+            str(comparison_stats["A_wins"]),
+            str(comparison_stats["ties"]),
+        )
+
+        console.print(comparison_table)
+        console.print(f"\n[bold]Overall Winner: [green]{overall_winner}[/green][/bold]")
+
+    # Calculate per-category scores
+    category_scores = calculate_category_scores(results)
+    if len(category_scores) > 2:  # More than just "overall" and one category
+        console.print()
+        cat_table = Table(title="Per-Category Accuracy")
+        cat_table.add_column("Category", style="cyan")
+        cat_table.add_column("Accuracy", justify="right")
+        cat_table.add_column("Correct", justify="right")
+        cat_table.add_column("Total", justify="right")
+
+        for cat_name, cat_stats in category_scores.items():
+            cat_table.add_row(
+                cat_name,
+                f"{cat_stats['accuracy']:.1f}%",
+                str(int(cat_stats['correct'])),
+                str(int(cat_stats['total'])),
+            )
+
+        console.print(cat_table)
+
+    # Save results
+    output.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = output / f"func_call_results_{timestamp}.json"
+
+    full_results = {
+        "benchmark_type": "function_calling",
+        "timestamp": datetime.now().isoformat(),
+        "config": {
+            "models": [m.display_name for m in model_configs],
+            "category": category,
+            "strict_mode": strict,
+            "dataset": str(dataset),
+            "test_count": len(test_cases),
+        },
+        "summary": {
+            "model_metrics": model_summaries,
+            "category_scores": category_scores,
+        },
+        "results": results,
+    }
+
+    if is_comparison:
+        full_results["summary"]["comparison"] = comparison_stats
+        full_results["summary"]["overall_winner"] = overall_winner
+
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(full_results, f, indent=2, ensure_ascii=False)
+
+    console.print(f"\n[green]Results saved to: {output_file}[/green]")
+
+
+@func_call_app.command("generate")
+def func_call_generate(
+    domain: str = typer.Option(
+        ..., "--domain", "-d",
+        help="Domain to generate test cases for (e.g., weather_api, task_manager)"
+    ),
+    count: int = typer.Option(
+        100, "--count", "-n",
+        help="Number of test cases to generate"
+    ),
+    category: str = typer.Option(
+        "simple", "--category", "-c",
+        help="Category type to generate: simple, parallel, multiple, multi_turn, agentic"
+    ),
+    output: Path = typer.Option(
+        Path("dataset.jsonl"), "--output", "-o",
+        help="Output JSONL file path"
+    ),
+    seed: int = typer.Option(
+        42, "--seed", "-s",
+        help="Random seed for reproducibility"
+    ),
+):
+    """
+    Generate function calling test cases for a domain.
+
+    Examples:
+        domainbench func-call generate -d weather_api -n 100 -o weather_test.jsonl
+        domainbench func-call generate -d task_manager -n 50 -c multi_turn -o tasks.jsonl
+    """
+    import json
+    from pathlib import Path as PathLib
+
+    console.print(f"\n[bold]Generating function calling test cases...[/bold]")
+    console.print(f"Domain: {domain}")
+    console.print(f"Category: {category}")
+    console.print(f"Count: {count}")
+    console.print(f"Seed: {seed}")
+
+    # Look for generator in builtin domains
+    from domainbench.domains.loader import BUILTIN_DOMAINS_DIR
+
+    # Check function_calling subdirectory
+    domain_path = BUILTIN_DOMAINS_DIR / "function_calling" / domain
+    generator_path = domain_path / "generator.py"
+
+    # Also check if domain is a path
+    if not generator_path.exists():
+        domain_as_path = PathLib(domain)
+        if domain_as_path.exists():
+            if domain_as_path.is_dir():
+                generator_path = domain_as_path / "generator.py"
+            else:
+                generator_path = domain_as_path.parent / "generator.py"
+
+    if generator_path.exists():
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("generator", generator_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+            if hasattr(module, 'generate_test_cases'):
+                items = module.generate_test_cases(count, seed, category)
+                console.print(f"[dim]Loaded generator from: {generator_path}[/dim]")
+            else:
+                console.print(f"[red]Generator found but missing generate_test_cases function[/red]")
+                raise typer.Exit(1)
+        except Exception as e:
+            console.print(f"[red]Error loading generator: {e}[/red]")
+            raise typer.Exit(1)
+    else:
+        console.print(f"[red]No generator available for domain: {domain}[/red]")
+        console.print(f"[dim]Looked for: {generator_path}[/dim]")
+        console.print("\nAvailable domains:")
+        console.print("  [cyan]domainbench func-call domains[/cyan]")
+        raise typer.Exit(1)
+
+    # Write to file
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with open(output, 'w', encoding='utf-8') as f:
+        for item in items:
+            f.write(json.dumps(item, ensure_ascii=False) + '\n')
+
+    console.print(f"\n[green]Generated {len(items)} test cases to: {output}[/green]")
+
+
+@func_call_app.command("domains")
+def func_call_domains():
+    """
+    List available function calling domains.
+    """
+    from rich.table import Table
+    from pathlib import Path as PathLib
+
+    from domainbench.domains.loader import BUILTIN_DOMAINS_DIR
+
+    table = Table(title="Available Function Calling Domains")
+    table.add_column("Name", style="cyan")
+    table.add_column("Description")
+    table.add_column("Categories", style="green")
+
+    # Check function_calling subdirectory
+    fc_domains_dir = BUILTIN_DOMAINS_DIR / "function_calling"
+
+    if fc_domains_dir.exists():
+        for domain_dir in fc_domains_dir.iterdir():
+            if domain_dir.is_dir() and (domain_dir / "domain.yaml").exists():
+                import yaml
+                with open(domain_dir / "domain.yaml", 'r') as f:
+                    config = yaml.safe_load(f)
+
+                domain_info = config.get("domain", {})
+                name = domain_info.get("name", domain_dir.name)
+                description = domain_info.get("description", "")
+                categories = domain_info.get("categories", ["simple"])
+
+                table.add_row(
+                    domain_dir.name,
+                    description,
+                    ", ".join(categories),
+                )
+
+    if table.row_count == 0:
+        console.print("[yellow]No function calling domains found.[/yellow]")
+        console.print("\nTo create a domain, add a folder under:")
+        console.print(f"  {fc_domains_dir}")
+        console.print("\nWith files: domain.yaml, generator.py, __init__.py")
+    else:
+        console.print(table)
+
+
+# =============================================================================
+# FUNCTION CALLING DOMAIN COMMANDS
+# =============================================================================
+
+@func_call_domain_app.command("generate")
+def func_call_domain_generate(
+    name: str = typer.Option(
+        ..., "--name", "-n",
+        help="Name of the domain to create (e.g., 'Restaurant Waiter', 'Banking API')"
+    ),
+    description: Optional[str] = typer.Option(
+        None, "--description", "-d",
+        help="Description of the domain (auto-generated if not provided)"
+    ),
+    provider: str = typer.Option(
+        "openai", "--provider", "-p",
+        help="LLM provider to use for generation (openai, anthropic, gemini)"
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model", "-m",
+        help="Model to use for generation (default: gpt-5.2)"
+    ),
+    categories: Optional[str] = typer.Option(
+        None, "--categories", "-c",
+        help="Comma-separated categories to support (default: simple,parallel,multiple)"
+    ),
+    output_dir: Optional[Path] = typer.Option(
+        None, "--output-dir", "-o",
+        help="Custom output directory (default: builtin domains)"
+    ),
+):
+    """
+    Create a new function calling domain using AI.
+
+    Generates a complete domain with:
+    - domain.yaml (function definitions)
+    - generator.py (test case generator)
+    - __init__.py (module exports)
+
+    Examples:
+        domainbench func-call domain generate -n "Restaurant Waiter"
+        domainbench func-call domain generate -n "Banking API" -d "Banking transaction functions"
+        domainbench func-call domain generate -n "Task Manager" -c "simple,parallel"
+    """
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    from domainbench.capabilities.function_calling.domain_creator import (
+        create_domain_with_ai,
+        validate_generated_domain,
+        DEFAULT_CREATOR_MODEL,
+    )
+
+    # Use default model if not specified
+    if model is None:
+        model = DEFAULT_CREATOR_MODEL
+
+    # Parse categories
+    category_list = None
+    if categories:
+        category_list = [c.strip() for c in categories.split(",")]
+
+    console.print(f"\n[bold]Creating function calling domain: {name}[/bold]")
+    console.print(f"Using: {provider}/{model}")
+    if description:
+        console.print(f"Description: {description}")
+    console.print()
+
+    try:
+        with console.status("[bold green]Generating domain files..."):
+            domain_path, domain_slug = create_domain_with_ai(
+                domain_name=name,
+                domain_description=description or "",
+                provider=provider,
+                model=model,
+                categories=category_list,
+                output_dir=output_dir,
+            )
+
+        console.print(f"[green]✓[/green] Domain files created at: {domain_path}")
+
+        # Validate the generated domain
+        console.print("\n[dim]Validating generated files...[/dim]")
+        is_valid, error = validate_generated_domain(domain_path)
+
+        if is_valid:
+            console.print(f"[green]✓[/green] Validation passed!")
+            console.print(f"\n[bold green]Domain '{domain_slug}' is ready to use![/bold green]")
+            console.print(f"\nNext steps:")
+            console.print(f"  1. Generate test cases: [cyan]domainbench func-call generate -d {domain_slug} -n 100 -o dataset.jsonl[/cyan]")
+            console.print(f"  2. Run benchmark: [cyan]domainbench func-call run -d dataset.jsonl -m openai/gpt-4o[/cyan]")
+        else:
+            console.print(f"[yellow]⚠[/yellow] Validation warning: {error}")
+            console.print(f"The domain was created but may need manual fixes at: {domain_path}")
+
+    except Exception as e:
+        console.print(f"\n[red]Error creating domain: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@func_call_domain_app.command("list")
+def func_call_domain_list():
+    """
+    List all available function calling domains.
+
+    Shows domain name, description, categories, and function count.
+    """
+    from rich.table import Table
+
+    from domainbench.capabilities.function_calling.domain_creator import (
+        list_function_calling_domains,
+    )
+
+    domains = list_function_calling_domains()
+
+    if not domains:
+        console.print("[yellow]No function calling domains found.[/yellow]")
+        console.print("\nTo create a new domain with AI, use:")
+        console.print("  [cyan]domainbench func-call domain generate -n \"Domain Name\"[/cyan]")
+        return
+
+    table = Table(title="Function Calling Domains")
+    table.add_column("Slug", style="cyan")
+    table.add_column("Name")
+    table.add_column("Description")
+    table.add_column("Categories", style="green")
+    table.add_column("Functions", justify="right")
+
+    for domain in domains:
+        table.add_row(
+            domain["slug"],
+            domain["name"],
+            domain["description"][:50] + "..." if len(domain["description"]) > 50 else domain["description"],
+            ", ".join(domain["categories"]),
+            str(domain["function_count"]),
+        )
+
+    console.print(table)
+
+
+# =============================================================================
 # GLOBAL COMMANDS
 # =============================================================================
 
@@ -1030,6 +1816,10 @@ def version():
 # Register sub-apps
 app.add_typer(chat_app, name="chat")
 app.add_typer(ocr_app, name="ocr")
+app.add_typer(func_call_app, name="func-call")
+
+# Register nested sub-apps
+func_call_app.add_typer(func_call_domain_app, name="domain")
 
 
 def main():
