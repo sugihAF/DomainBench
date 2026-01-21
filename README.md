@@ -53,12 +53,31 @@ Tool use and function calling benchmarks using **BFCL-style AST evaluation**.
 git clone https://github.com/sugihAF/DomainBench.git
 cd DomainBench
 
-# Install in development mode
+# Create and activate virtual environment (recommended)
+python -m venv venv
+
+# On Windows:
+venv\Scripts\activate
+
+# On macOS/Linux:
+source venv/bin/activate
+
+# Install domainbench
 pip install -e .
 
-# Or install dependencies directly
-pip install -r requirements.txt
+# Verify installation
+domainbench --help
 ```
+
+**Alternative: Install without virtual environment**
+```bash
+# This may require adding the Scripts folder to PATH
+pip install .
+```
+
+**Note for Windows users**: If you install without a virtual environment and get a PATH warning, either:
+1. Use `python -m domainbench` instead of `domainbench`
+2. Add the displayed Scripts folder to your system PATH
 
 ## Quick Start
 

@@ -119,6 +119,22 @@ Examples:
   domainbench func-call run -d dataset.jsonl -m openai/gpt-4o -m anthropic/claude-sonnet-4 -c parallel
   domainbench func-call generate -d weather_api -n 100 -o test_cases.jsonl
   domainbench func-call domains
+  domainbench func-call domain generate -n "Restaurant Waiter" -d "Restaurant ordering API"
+""",
+)
+
+# Function calling domain sub-app
+func_call_domain_app = typer.Typer(
+    name="domain",
+    help="""Manage function calling domains - Create new domains with AI
+
+Commands:
+  generate  Create a new function calling domain using AI
+  list      List all available function calling domains
+
+Examples:
+  domainbench func-call domain generate -n "Restaurant Waiter" -d "Restaurant ordering API"
+  domainbench func-call domain list
 """,
 )
 
@@ -1482,6 +1498,146 @@ def func_call_domains():
 
 
 # =============================================================================
+# FUNCTION CALLING DOMAIN COMMANDS
+# =============================================================================
+
+@func_call_domain_app.command("generate")
+def func_call_domain_generate(
+    name: str = typer.Option(
+        ..., "--name", "-n",
+        help="Name of the domain to create (e.g., 'Restaurant Waiter', 'Banking API')"
+    ),
+    description: Optional[str] = typer.Option(
+        None, "--description", "-d",
+        help="Description of the domain (auto-generated if not provided)"
+    ),
+    provider: str = typer.Option(
+        "openai", "--provider", "-p",
+        help="LLM provider to use for generation (openai, anthropic, gemini)"
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model", "-m",
+        help="Model to use for generation (default: gpt-5.2)"
+    ),
+    categories: Optional[str] = typer.Option(
+        None, "--categories", "-c",
+        help="Comma-separated categories to support (default: simple,parallel,multiple)"
+    ),
+    output_dir: Optional[Path] = typer.Option(
+        None, "--output-dir", "-o",
+        help="Custom output directory (default: builtin domains)"
+    ),
+):
+    """
+    Create a new function calling domain using AI.
+
+    Generates a complete domain with:
+    - domain.yaml (function definitions)
+    - generator.py (test case generator)
+    - __init__.py (module exports)
+
+    Examples:
+        domainbench func-call domain generate -n "Restaurant Waiter"
+        domainbench func-call domain generate -n "Banking API" -d "Banking transaction functions"
+        domainbench func-call domain generate -n "Task Manager" -c "simple,parallel"
+    """
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    from domainbench.capabilities.function_calling.domain_creator import (
+        create_domain_with_ai,
+        validate_generated_domain,
+        DEFAULT_CREATOR_MODEL,
+    )
+
+    # Use default model if not specified
+    if model is None:
+        model = DEFAULT_CREATOR_MODEL
+
+    # Parse categories
+    category_list = None
+    if categories:
+        category_list = [c.strip() for c in categories.split(",")]
+
+    console.print(f"\n[bold]Creating function calling domain: {name}[/bold]")
+    console.print(f"Using: {provider}/{model}")
+    if description:
+        console.print(f"Description: {description}")
+    console.print()
+
+    try:
+        with console.status("[bold green]Generating domain files..."):
+            domain_path, domain_slug = create_domain_with_ai(
+                domain_name=name,
+                domain_description=description or "",
+                provider=provider,
+                model=model,
+                categories=category_list,
+                output_dir=output_dir,
+            )
+
+        console.print(f"[green]✓[/green] Domain files created at: {domain_path}")
+
+        # Validate the generated domain
+        console.print("\n[dim]Validating generated files...[/dim]")
+        is_valid, error = validate_generated_domain(domain_path)
+
+        if is_valid:
+            console.print(f"[green]✓[/green] Validation passed!")
+            console.print(f"\n[bold green]Domain '{domain_slug}' is ready to use![/bold green]")
+            console.print(f"\nNext steps:")
+            console.print(f"  1. Generate test cases: [cyan]domainbench func-call generate -d {domain_slug} -n 100 -o dataset.jsonl[/cyan]")
+            console.print(f"  2. Run benchmark: [cyan]domainbench func-call run -d dataset.jsonl -m openai/gpt-4o[/cyan]")
+        else:
+            console.print(f"[yellow]⚠[/yellow] Validation warning: {error}")
+            console.print(f"The domain was created but may need manual fixes at: {domain_path}")
+
+    except Exception as e:
+        console.print(f"\n[red]Error creating domain: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@func_call_domain_app.command("list")
+def func_call_domain_list():
+    """
+    List all available function calling domains.
+
+    Shows domain name, description, categories, and function count.
+    """
+    from rich.table import Table
+
+    from domainbench.capabilities.function_calling.domain_creator import (
+        list_function_calling_domains,
+    )
+
+    domains = list_function_calling_domains()
+
+    if not domains:
+        console.print("[yellow]No function calling domains found.[/yellow]")
+        console.print("\nTo create a new domain with AI, use:")
+        console.print("  [cyan]domainbench func-call domain generate -n \"Domain Name\"[/cyan]")
+        return
+
+    table = Table(title="Function Calling Domains")
+    table.add_column("Slug", style="cyan")
+    table.add_column("Name")
+    table.add_column("Description")
+    table.add_column("Categories", style="green")
+    table.add_column("Functions", justify="right")
+
+    for domain in domains:
+        table.add_row(
+            domain["slug"],
+            domain["name"],
+            domain["description"][:50] + "..." if len(domain["description"]) > 50 else domain["description"],
+            ", ".join(domain["categories"]),
+            str(domain["function_count"]),
+        )
+
+    console.print(table)
+
+
+# =============================================================================
 # GLOBAL COMMANDS
 # =============================================================================
 
@@ -1588,6 +1744,9 @@ def version():
 app.add_typer(chat_app, name="chat")
 app.add_typer(ocr_app, name="ocr")
 app.add_typer(func_call_app, name="func-call")
+
+# Register nested sub-apps
+func_call_app.add_typer(func_call_domain_app, name="domain")
 
 
 def main():

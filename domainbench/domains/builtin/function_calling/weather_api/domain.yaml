@@ -8,6 +8,8 @@ domain:
     - simple
     - parallel
     - multiple
+    - multi_turn
+    - agentic
 
   functions:
     - name: "get_current_weather"

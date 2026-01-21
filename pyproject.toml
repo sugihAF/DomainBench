@@ -54,6 +54,9 @@ Repository = "https://github.com/sugihAF/DomainBench"
 where = ["."]
 include = ["domainbench*"]
 
+[tool.setuptools.package-data]
+"*" = ["*.yaml", "*.yml", "*.json", "*.md"]
+
 [tool.black]
 line-length = 100
 target-version = ["py310"]

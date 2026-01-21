@@ -23,6 +23,13 @@ from domainbench.capabilities.function_calling.checkers import (
     validate_multi_turn,
     validate_agentic_response,
 )
+from domainbench.capabilities.function_calling.domain_creator import (
+    create_domain_with_ai,
+    validate_generated_domain,
+    list_function_calling_domains,
+    DEFAULT_CREATOR_MODEL,
+    SUPPORTED_CATEGORIES,
+)
 
 __all__ = [
     "FunctionCallingCapability",
@@ -32,4 +39,9 @@ __all__ = [
     "validate_multiple_calls",
     "validate_multi_turn",
     "validate_agentic_response",
+    "create_domain_with_ai",
+    "validate_generated_domain",
+    "list_function_calling_domains",
+    "DEFAULT_CREATOR_MODEL",
+    "SUPPORTED_CATEGORIES",
 ]
