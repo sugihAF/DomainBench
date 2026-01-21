@@ -10,12 +10,11 @@ Key design principles (learned from working domains):
 - NO array parameters (causes Gemini API errors)
 - NO default values (not supported by all providers)
 - Values in queries MUST match values in ground_truth exactly
-- Use enum values directly in queries (not mapped names)
-- Simple schemas: string, integer, boolean with enums
+- Templates MUST use actual parameter names from function definitions
+- All required parameters MUST be provided in ground_truth
 """
 
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -23,7 +22,6 @@ from typing import Any, Dict, List, Optional, Tuple
 # Try to import optional dependencies
 try:
     from rich.console import Console
-    from rich.progress import Progress, SpinnerColumn, TextColumn
     console = Console()
     HAS_RICH = True
 except ImportError:
@@ -31,7 +29,6 @@ except ImportError:
 
     class Console:
         def print(self, *args, **kwargs):
-            # Strip rich formatting
             text = args[0] if args else ""
             text = re.sub(r'\[.*?\]', '', str(text))
             print(text)
@@ -40,7 +37,7 @@ except ImportError:
 
 
 # Default model for domain generation
-DEFAULT_CREATOR_MODEL = "gpt-4o"
+DEFAULT_CREATOR_MODEL = "gpt-5.2"
 DEFAULT_PROVIDER = "openai"
 
 # All standard categories that every domain generator must support
@@ -60,39 +57,20 @@ def slugify(name: str) -> str:
 
 
 def _fix_generated_code(code: str) -> str:
-    """
-    Fix common issues in AI-generated Python code.
-
-    Fixes:
-    - JSON-style booleans (true/false -> True/False)
-    - JSON-style null (null -> None)
-    - Missing ground_truth field (expected_calls -> ground_truth)
-    """
-    # Fix JSON-style booleans and null
+    """Fix common issues in AI-generated Python code."""
     code = re.sub(r':\s*true\b', ': True', code)
     code = re.sub(r':\s*false\b', ': False', code)
     code = re.sub(r':\s*null\b', ': None', code)
     code = re.sub(r',\s*true\b', ', True', code)
     code = re.sub(r',\s*false\b', ', False', code)
     code = re.sub(r',\s*null\b', ', None', code)
-    code = re.sub(r'\[\s*true\b', '[True', code)
-    code = re.sub(r'\[\s*false\b', '[False', code)
-    code = re.sub(r'\[\s*null\b', '[None', code)
-
-    # Fix ground_truth field if missing but expected_calls exists
-    if '"expected_calls"' in code and '"ground_truth"' not in code:
-        code = code.replace('"expected_calls":', '"ground_truth":')
-
     return code
 
 
 def _clean_functions_for_compatibility(functions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Clean function definitions for cross-provider compatibility.
-
-    Removes:
-    - Array type parameters (Gemini issues)
-    - Default values (not universally supported)
+    Removes array types and default values.
     """
     cleaned = []
     for func in functions:
@@ -102,7 +80,7 @@ def _clean_functions_for_compatibility(functions: List[Dict[str, Any]]) -> List[
             "parameters": {
                 "type": "object",
                 "properties": {},
-                "required": func.get("parameters", {}).get("required", [])
+                "required": []
             }
         }
 
@@ -111,23 +89,20 @@ def _clean_functions_for_compatibility(functions: List[Dict[str, Any]]) -> List[
         new_required = []
 
         for param_name, param_def in props.items():
-            # Skip array types - they cause Gemini errors
+            # Skip array types
             if param_def.get("type") == "array":
                 continue
 
-            # Copy parameter without default
             clean_param = {
                 "type": param_def.get("type", "string"),
                 "description": param_def.get("description", "")
             }
 
-            # Keep enum if present
             if "enum" in param_def:
                 clean_param["enum"] = param_def["enum"]
 
             clean_func["parameters"]["properties"][param_name] = clean_param
 
-            # Track required params that weren't removed
             if param_name in required:
                 new_required.append(param_name)
 
@@ -135,102 +110,6 @@ def _clean_functions_for_compatibility(functions: List[Dict[str, Any]]) -> List[
         cleaned.append(clean_func)
 
     return cleaned
-
-
-def _extract_enum_values(functions: List[Dict[str, Any]]) -> Dict[str, List[str]]:
-    """
-    Extract all enum values from function parameter definitions.
-
-    Returns a dict mapping parameter names to their valid values.
-    """
-    enums = {}
-
-    for func in functions:
-        params = func.get("parameters", {}).get("properties", {})
-        for param_name, param_def in params.items():
-            if "enum" in param_def:
-                key = f"{func['name']}_{param_name}"
-                enums[key] = param_def["enum"]
-                # Also store by just param name for easier lookup
-                if param_name not in enums:
-                    enums[param_name] = param_def["enum"]
-
-    return enums
-
-
-def _extract_sample_data_from_functions(functions: List[Dict[str, Any]], domain_name: str) -> Dict[str, Any]:
-    """
-    Analyze function definitions and extract domain-specific sample data.
-
-    Returns structured sample data that can be used in templates.
-    """
-    enums = _extract_enum_values(functions)
-
-    # Build sample data structure
-    sample_data = {
-        "enums": enums,
-        "functions": [],
-        "domain_name": domain_name,
-    }
-
-    for func in functions:
-        func_info = {
-            "name": func["name"],
-            "description": func.get("description", ""),
-            "required_params": func.get("parameters", {}).get("required", []),
-            "params": {},
-        }
-
-        params = func.get("parameters", {}).get("properties", {})
-        for param_name, param_def in params.items():
-            param_info = {
-                "type": param_def.get("type", "string"),
-                "description": param_def.get("description", ""),
-                "required": param_name in func_info["required_params"],
-            }
-
-            if "enum" in param_def:
-                param_info["values"] = param_def["enum"]
-            elif param_def.get("type") == "integer":
-                param_info["values"] = _generate_sample_integers(param_name)
-            elif param_def.get("type") == "boolean":
-                param_info["values"] = [True, False]
-
-            func_info["params"][param_name] = param_info
-
-        sample_data["functions"].append(func_info)
-
-    return sample_data
-
-
-def _generate_sample_integers(param_name: str) -> List[int]:
-    """Generate appropriate sample integers based on parameter name."""
-    name_lower = param_name.lower()
-
-    if "count" in name_lower or "quantity" in name_lower or "num" in name_lower:
-        return [1, 2, 3, 4, 5]
-    elif "table" in name_lower:
-        return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    elif "guest" in name_lower or "people" in name_lower or "party" in name_lower:
-        return [1, 2, 3, 4, 5, 6]
-    elif "percent" in name_lower or "tip" in name_lower:
-        return [10, 15, 18, 20, 25]
-    elif "year" in name_lower:
-        return [2020, 2021, 2022, 2023, 2024, 2025]
-    elif "month" in name_lower:
-        return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-    elif "day" in name_lower:
-        return [1, 5, 10, 15, 20, 25, 28]
-    elif "hour" in name_lower:
-        return [9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
-    elif "minute" in name_lower:
-        return [0, 15, 30, 45]
-    elif "id" in name_lower:
-        return [1001, 1002, 1003, 1004, 1005]
-    elif "price" in name_lower or "amount" in name_lower or "cost" in name_lower:
-        return [10, 25, 50, 100, 250]
-    else:
-        return [1, 2, 3, 5, 10]
 
 
 def create_domain_with_ai(
@@ -241,27 +120,13 @@ def create_domain_with_ai(
     categories: Optional[List[str]] = None,
     output_dir: Optional[Path] = None,
 ) -> Tuple[Path, str]:
-    """
-    Create a new function calling domain using AI.
-
-    Args:
-        domain_name: Human-readable name for the domain
-        domain_description: Optional description of what the domain covers
-        provider: LLM provider to use (openai, anthropic, gemini)
-        model: Model name for generation
-        categories: Categories to support (default: all)
-        output_dir: Custom output directory (default: builtin domains)
-
-    Returns:
-        Tuple of (domain_path, domain_slug)
-    """
+    """Create a new function calling domain using AI."""
     from dotenv import load_dotenv
     load_dotenv()
 
     from domainbench.core.config import ModelConfig, ProviderType
     from domainbench.providers import get_provider
 
-    # Initialize provider
     try:
         provider_type = ProviderType(provider.lower())
     except ValueError:
@@ -274,58 +139,42 @@ def create_domain_with_ai(
     )
     llm_provider = get_provider(model_config)
 
-    # Set default categories - always support all standard categories
     if categories is None:
         categories = SUPPORTED_CATEGORIES.copy()
 
-    # Generate domain slug
     domain_slug = slugify(domain_name)
 
-    # Determine output directory
     if output_dir:
         domain_path = Path(output_dir) / domain_slug
     else:
         domain_path = FUNC_CALL_DOMAINS_DIR / domain_slug
 
-    # Create domain directory
     domain_path.mkdir(parents=True, exist_ok=True)
 
-    # Generate domain files using AI
     console.print(f"[dim]Generating domain: {domain_name}[/dim]")
 
     # Step 1: Generate function definitions
     console.print("[dim]  Generating function definitions...[/dim]")
-    functions = _generate_functions(
-        llm_provider, model, domain_name, domain_description
-    )
+    functions = _generate_functions(llm_provider, model, domain_name, domain_description)
 
-    # Step 2: Clean functions for cross-provider compatibility
+    # Step 2: Clean functions for compatibility
     console.print("[dim]  Cleaning functions for compatibility...[/dim]")
     functions = _clean_functions_for_compatibility(functions)
 
-    # Step 3: Extract sample data from functions
-    console.print("[dim]  Extracting domain-specific sample data...[/dim]")
-    sample_data = _extract_sample_data_from_functions(functions, domain_name)
-
-    # Step 4: Generate domain.yaml
+    # Step 3: Generate domain.yaml
     console.print("[dim]  Creating domain.yaml...[/dim]")
-    domain_yaml = _create_domain_yaml(
-        domain_name, domain_description, categories, functions
-    )
+    domain_yaml = _create_domain_yaml(domain_name, domain_description, categories, functions)
     with open(domain_path / "domain.yaml", 'w', encoding='utf-8') as f:
         f.write(domain_yaml)
 
-    # Step 5: Generate generator.py with domain-specific data
+    # Step 4: Generate generator.py
     console.print("[dim]  Generating test case generator...[/dim]")
-    generator_code = _create_fallback_generator(domain_name, functions, sample_data)
-
-    # Apply fixes for common AI generation issues
+    generator_code = _create_generator_from_functions(domain_name, functions)
     generator_code = _fix_generated_code(generator_code)
-
     with open(domain_path / "generator.py", 'w', encoding='utf-8') as f:
         f.write(generator_code)
 
-    # Step 6: Create __init__.py
+    # Step 5: Create __init__.py
     console.print("[dim]  Creating __init__.py...[/dim]")
     init_code = _create_init_py(domain_name)
     with open(domain_path / "__init__.py", 'w', encoding='utf-8') as f:
@@ -341,50 +190,46 @@ def _generate_functions(
     domain_description: str,
 ) -> List[Dict[str, Any]]:
     """Generate function definitions using AI."""
-    prompt = f"""Generate 4-6 function definitions for a function calling benchmark domain.
+    domain_slug = slugify(domain_name)
+
+    prompt = f"""Generate 4 function definitions for a function calling benchmark domain.
 
 Domain Name: {domain_name}
 Description: {domain_description or f"A {domain_name.lower()} related API"}
 
 **CRITICAL REQUIREMENTS:**
 
-1. **NO ARRAY TYPES** - Do NOT use "type": "array" for any parameter. Use separate parameters instead.
-   - BAD: "items": {{"type": "array", "items": {{"type": "string"}}}}
-   - GOOD: "item_id": {{"type": "string"}}
+1. **NO ARRAY TYPES** - Do NOT use "type": "array"
+2. **NO DEFAULT VALUES** - Do NOT include "default" fields
+3. **USE ENUMS** for string parameters with fixed values (categories, statuses, types, etc.)
+4. **SIMPLE TYPES ONLY**: string, integer, boolean
 
-2. **NO DEFAULT VALUES** - Do NOT include "default" fields in parameters.
+Generate exactly 4 functions:
+1. A "get list" function with ONE optional enum parameter (like category)
+2. A "get details" function with ONE required string ID parameter
+3. A "create" function with 2 required integer parameters
+4. A "process/update" function with ONE required string ID and ONE required enum parameter
 
-3. **USE ENUMS** for parameters with fixed valid values:
-   - Categories, statuses, payment methods, etc.
+Output ONLY valid JSON array:
 
-4. **SIMPLE TYPES ONLY**: string, integer, boolean (with enum for strings where appropriate)
-
-5. Functions should be realistic and work together for workflows.
-
-Output ONLY valid JSON array with no markdown formatting. Each function object should have:
-- "name": snake_case function name
-- "description": what the function does
-- "parameters": JSON Schema object with properties and required fields
-
-Example format:
 [
   {{
-    "name": "get_menu",
-    "description": "Get menu items by category",
+    "name": "get_{domain_slug}_list",
+    "description": "Get list of items, optionally filtered by category",
     "parameters": {{
       "type": "object",
       "properties": {{
         "category": {{
           "type": "string",
-          "enum": ["appetizers", "mains", "desserts", "drinks"],
-          "description": "Menu category to filter by"
+          "enum": ["type_a", "type_b", "type_c", "type_d", "type_e"],
+          "description": "Category to filter by"
         }}
       }},
       "required": []
     }}
   }},
   {{
-    "name": "get_item_details",
+    "name": "get_{domain_slug}_details",
     "description": "Get details for a specific item",
     "parameters": {{
       "type": "object",
@@ -398,45 +243,47 @@ Example format:
     }}
   }},
   {{
-    "name": "create_order",
-    "description": "Create a new order",
+    "name": "create_{domain_slug}",
+    "description": "Create a new item",
     "parameters": {{
       "type": "object",
       "properties": {{
-        "table_number": {{
+        "reference_id": {{
           "type": "integer",
-          "description": "Table number"
+          "description": "Reference number"
         }},
-        "guest_count": {{
+        "quantity": {{
           "type": "integer",
-          "description": "Number of guests"
+          "description": "Quantity"
         }}
       }},
-      "required": ["table_number", "guest_count"]
+      "required": ["reference_id", "quantity"]
     }}
   }},
   {{
-    "name": "process_payment",
-    "description": "Process payment for an order",
+    "name": "process_{domain_slug}",
+    "description": "Process or update an item",
     "parameters": {{
       "type": "object",
       "properties": {{
-        "order_id": {{
+        "item_id": {{
           "type": "string",
-          "description": "Order identifier"
+          "description": "Item identifier"
         }},
-        "payment_method": {{
+        "action": {{
           "type": "string",
-          "enum": ["cash", "card", "contactless"],
-          "description": "Payment method"
+          "enum": ["approve", "reject", "pending"],
+          "description": "Action to perform"
         }}
       }},
-      "required": ["order_id", "payment_method"]
+      "required": ["item_id", "action"]
     }}
   }}
 ]
 
-Generate the functions now:"""
+Generate domain-specific function names and enum values that make sense for "{domain_name}".
+Use "{domain_slug}" as the base for function names.
+Output ONLY the JSON array, no other text:"""
 
     response = provider.chat_completion(
         model=model,
@@ -447,16 +294,13 @@ Generate the functions now:"""
 
     content = response.get("content", "")
 
-    # Parse JSON from response
     try:
-        # Try to extract JSON from response
         json_match = re.search(r'\[[\s\S]*\]', content)
         if json_match:
             functions = json.loads(json_match.group())
         else:
             functions = json.loads(content)
     except json.JSONDecodeError:
-        # Fallback: create basic functions
         functions = _create_fallback_functions(domain_name)
 
     return functions
@@ -468,13 +312,13 @@ def _create_fallback_functions(domain_name: str) -> List[Dict[str, Any]]:
     return [
         {
             "name": f"get_{slug}_list",
-            "description": f"Get a list of {domain_name.lower()} items by category",
+            "description": f"Get list of {domain_name.lower()} items by category",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "category": {
                         "type": "string",
-                        "enum": ["category_a", "category_b", "category_c", "category_d"],
+                        "enum": ["type_a", "type_b", "type_c", "type_d", "type_e"],
                         "description": "Category to filter by"
                     }
                 },
@@ -496,12 +340,12 @@ def _create_fallback_functions(domain_name: str) -> List[Dict[str, Any]]:
             }
         },
         {
-            "name": f"create_{slug}_order",
-            "description": f"Create a new {domain_name.lower()} order",
+            "name": f"create_{slug}",
+            "description": f"Create a new {domain_name.lower()} item",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "reference_number": {
+                    "reference_id": {
                         "type": "integer",
                         "description": "Reference number"
                     },
@@ -510,26 +354,26 @@ def _create_fallback_functions(domain_name: str) -> List[Dict[str, Any]]:
                         "description": "Quantity"
                     }
                 },
-                "required": ["reference_number", "quantity"]
+                "required": ["reference_id", "quantity"]
             }
         },
         {
-            "name": f"process_{slug}_action",
-            "description": f"Process an action for {domain_name.lower()}",
+            "name": f"process_{slug}",
+            "description": f"Process a {domain_name.lower()} action",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "action_id": {
+                    "item_id": {
                         "type": "string",
-                        "description": "Action identifier"
+                        "description": "Item identifier"
                     },
-                    "action_type": {
+                    "action": {
                         "type": "string",
-                        "enum": ["approve", "reject", "pending", "complete"],
-                        "description": "Type of action"
+                        "enum": ["approve", "reject", "pending"],
+                        "description": "Action to perform"
                     }
                 },
-                "required": ["action_id", "action_type"]
+                "required": ["item_id", "action"]
             }
         }
     ]
@@ -558,155 +402,130 @@ def _create_domain_yaml(
     return yaml.dump(domain_config, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
-def _create_fallback_generator(
-    domain_name: str,
-    functions: List[Dict[str, Any]],
-    sample_data: Dict[str, Any],
-) -> str:
+def _analyze_function(func: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Create a robust generator following the restaurant_waiter pattern.
+    Analyze a function definition and extract useful info for template generation.
+    """
+    props = func.get("parameters", {}).get("properties", {})
+    required = func.get("parameters", {}).get("required", [])
 
-    Key principles:
-    - Values in queries MUST match values in ground_truth exactly
-    - Use IDs directly in queries (not mapped names)
-    - Natural language that sounds like real requests
+    params = []
+    for param_name, param_def in props.items():
+        param_info = {
+            "name": param_name,
+            "type": param_def.get("type", "string"),
+            "required": param_name in required,
+            "enum": param_def.get("enum"),
+            "description": param_def.get("description", ""),
+        }
+        params.append(param_info)
+
+    return {
+        "name": func["name"],
+        "description": func.get("description", ""),
+        "params": params,
+        "required_params": [p for p in params if p["required"]],
+        "optional_params": [p for p in params if not p["required"]],
+        "enum_params": [p for p in params if p["enum"]],
+        "string_params": [p for p in params if p["type"] == "string" and not p["enum"]],
+        "int_params": [p for p in params if p["type"] == "integer"],
+    }
+
+
+def _create_generator_from_functions(domain_name: str, functions: List[Dict[str, Any]]) -> str:
+    """
+    Create a generator that produces templates matching the actual function signatures.
     """
     slug = slugify(domain_name)
 
-    # Extract enum values from functions
-    enums = sample_data.get("enums", {})
-    func_info = sample_data.get("functions", [])
+    # Analyze all functions
+    analyzed = [_analyze_function(f) for f in functions]
 
-    # Find functions by type
+    # Find functions by pattern
     list_func = None
     detail_func = None
     create_func = None
-    action_func = None
+    process_func = None
 
-    for f in func_info:
-        name = f["name"].lower()
-        if "list" in name or ("get" in name and "detail" not in name and "info" not in name):
+    for f in analyzed:
+        name_lower = f["name"].lower()
+        if ("list" in name_lower or "get" in name_lower) and f["optional_params"] and f["enum_params"]:
             if list_func is None:
                 list_func = f
-        elif "detail" in name or "info" in name:
-            detail_func = f
-        elif "create" in name or "new" in name or "order" in name:
+        elif ("detail" in name_lower or "get" in name_lower) and f["string_params"] and not f["enum_params"]:
+            if detail_func is None:
+                detail_func = f
+        elif "create" in name_lower and f["int_params"]:
             if create_func is None:
                 create_func = f
-        elif "process" in name or "action" in name or "update" in name:
-            if action_func is None:
-                action_func = f
+        elif ("process" in name_lower or "update" in name_lower) and f["enum_params"]:
+            if process_func is None:
+                process_func = f
 
     # Fallbacks
-    if list_func is None and func_info:
-        list_func = func_info[0]
-    if detail_func is None and len(func_info) > 1:
-        detail_func = func_info[1]
-    if create_func is None and len(func_info) > 2:
-        create_func = func_info[2]
-    if action_func is None and len(func_info) > 3:
-        action_func = func_info[3]
+    if list_func is None and analyzed:
+        list_func = analyzed[0]
+    if detail_func is None and len(analyzed) > 1:
+        detail_func = analyzed[1]
+    if create_func is None and len(analyzed) > 2:
+        create_func = analyzed[2]
+    if process_func is None and len(analyzed) > 3:
+        process_func = analyzed[3]
 
-    # Build data declarations
-    data_declarations = []
+    # Build sample data based on actual parameters
+    sample_data_lines = []
+    template_vars = {}
 
-    # Find primary enum (usually category-like)
-    primary_enum_param = None
-    primary_enum_var = None
-    primary_enum_values = None
+    # For list function's enum param
+    if list_func and list_func["enum_params"]:
+        enum_param = list_func["enum_params"][0]
+        var_name = enum_param["name"].upper() + "S"
+        sample_data_lines.append(f'{var_name} = {json.dumps(enum_param["enum"])}')
+        template_vars["list_enum_var"] = var_name
+        template_vars["list_enum_param"] = enum_param["name"]
 
-    if list_func:
-        for param_name, param_info in list_func.get("params", {}).items():
-            if "values" in param_info and param_info.get("type") == "string":
-                var_name = param_name.upper()
-                if not var_name.endswith("S"):
-                    var_name += "S"
-                values = param_info["values"]
-                data_declarations.append(f'{var_name} = {json.dumps(values)}')
-                if primary_enum_param is None:
-                    primary_enum_param = param_name
-                    primary_enum_var = var_name
-                    primary_enum_values = values
+    # For detail function's string param
+    if detail_func and detail_func["string_params"]:
+        id_param = detail_func["string_params"][0]
+        var_name = "ITEM_IDS"
+        sample_data_lines.append(f'{var_name} = ["{slug}_001", "{slug}_002", "{slug}_003", "{slug}_004", "{slug}_005"]')
+        template_vars["detail_id_var"] = var_name
+        template_vars["detail_id_param"] = id_param["name"]
 
-    # Find secondary enum (for action function)
-    secondary_enum_param = None
-    secondary_enum_var = None
+    # For create function's int params
+    if create_func and create_func["int_params"]:
+        for i, int_param in enumerate(create_func["int_params"][:2]):
+            var_name = int_param["name"].upper() + "S"
+            sample_data_lines.append(f'{var_name} = list(range(1, 21))')
+            template_vars[f"create_int_var_{i}"] = var_name
+            template_vars[f"create_int_param_{i}"] = int_param["name"]
 
-    if action_func:
-        for param_name, param_info in action_func.get("params", {}).items():
-            if "values" in param_info and param_info.get("type") == "string" and param_name != primary_enum_param:
-                var_name = param_name.upper()
-                if not var_name.endswith("S"):
-                    var_name += "S"
-                values = param_info["values"]
-                data_declarations.append(f'{var_name} = {json.dumps(values)}')
-                if secondary_enum_param is None:
-                    secondary_enum_param = param_name
-                    secondary_enum_var = var_name
+    # For process function's enum param
+    if process_func and process_func["enum_params"]:
+        enum_param = process_func["enum_params"][0]
+        var_name = enum_param["name"].upper() + "S"
+        if var_name not in [line.split(" = ")[0] for line in sample_data_lines]:
+            sample_data_lines.append(f'{var_name} = {json.dumps(enum_param["enum"])}')
+        template_vars["process_enum_var"] = var_name
+        template_vars["process_enum_param"] = enum_param["name"]
 
-    # Fallback if no enums found
-    if not primary_enum_param:
-        primary_enum_param = "category"
-        primary_enum_var = "CATEGORIES"
-        primary_enum_values = ["category_a", "category_b", "category_c", "category_d"]
-        data_declarations.append(f'CATEGORIES = {json.dumps(primary_enum_values)}')
+    # For process function's string param
+    if process_func and process_func["string_params"]:
+        id_param = process_func["string_params"][0]
+        template_vars["process_id_param"] = id_param["name"]
 
-    if not secondary_enum_param and action_func:
-        secondary_enum_param = "action_type"
-        secondary_enum_var = "ACTION_TYPES"
-        data_declarations.append('ACTION_TYPES = ["approve", "reject", "pending", "complete"]')
+    sample_data = "\n".join(sample_data_lines)
+    functions_json = json.dumps(functions, indent=4)
 
-    # Create sample items with IDs
-    data_declarations.append(f'''
-ITEMS = [
-    {{"id": "{slug}_001", "name": "{domain_name} Item 1"}},
-    {{"id": "{slug}_002", "name": "{domain_name} Item 2"}},
-    {{"id": "{slug}_003", "name": "{domain_name} Item 3"}},
-    {{"id": "{slug}_004", "name": "{domain_name} Item 4"}},
-    {{"id": "{slug}_005", "name": "{domain_name} Item 5"}},
-]''')
+    # Build templates that use actual parameter names
+    simple_templates = _build_simple_templates(list_func, detail_func, create_func, process_func, template_vars)
+    parallel_templates = _build_parallel_templates(list_func, detail_func, template_vars)
+    multiple_templates = _build_multiple_templates(list_func, detail_func, template_vars)
+    multi_turn_templates = _build_multi_turn_templates(list_func, detail_func, template_vars)
+    agentic_templates = _build_agentic_templates(template_vars)
 
-    # Add integer ranges
-    data_declarations.append('\nREFERENCE_NUMBERS = list(range(1, 21))')
-    data_declarations.append('QUANTITIES = [1, 2, 3, 4, 5]')
-
-    data_section = "\n".join(data_declarations)
-
-    # Build functions JSON
-    functions_str = json.dumps(functions, indent=4)
-
-    # Get function names
-    list_func_name = list_func["name"] if list_func else f"get_{slug}_list"
-    detail_func_name = detail_func["name"] if detail_func else f"get_{slug}_details"
-    create_func_name = create_func["name"] if create_func else f"create_{slug}_order"
-    action_func_name = action_func["name"] if action_func else f"process_{slug}_action"
-
-    # Find ID param for detail function
-    id_param = "item_id"
-    if detail_func:
-        for param_name in detail_func.get("params", {}).keys():
-            if "id" in param_name.lower():
-                id_param = param_name
-                break
-
-    # Find params for create function
-    create_param1 = "reference_number"
-    create_param2 = "quantity"
-    if create_func:
-        int_params = [p for p, info in create_func.get("params", {}).items()
-                      if info.get("type") == "integer"]
-        if len(int_params) >= 1:
-            create_param1 = int_params[0]
-        if len(int_params) >= 2:
-            create_param2 = int_params[1]
-
-    # Find params for action function
-    action_id_param = "action_id"
-    if action_func:
-        for param_name in action_func.get("params", {}).keys():
-            if "id" in param_name.lower():
-                action_id_param = param_name
-                break
+    # Build _get_random_values function
+    random_values = _build_random_values_func(template_vars)
 
     return f'''"""
 {domain_name} function calling test case generator.
@@ -720,16 +539,16 @@ from typing import Any, Dict, List
 
 # ============================================================================
 # DOMAIN-SPECIFIC SAMPLE DATA
-# These values appear EXACTLY the same in queries AND ground_truth
 # ============================================================================
-{data_section}
+
+{sample_data}
 
 
 # ============================================================================
 # FUNCTION DEFINITIONS
 # ============================================================================
 
-FUNCTIONS = {functions_str}
+FUNCTIONS = {functions_json}
 
 
 # ============================================================================
@@ -741,135 +560,24 @@ SUPPORTED_CATEGORIES = ["simple", "parallel", "multiple", "multi_turn", "agentic
 
 # ============================================================================
 # QUERY TEMPLATES
-# CRITICAL: The exact same value must appear in query AND ground_truth
 # ============================================================================
 
-SIMPLE_TEMPLATES = [
-    # List function with enum - enum value appears in both query and ground_truth
-    ("Show me the {{{primary_enum_param}}} options", "{list_func_name}({primary_enum_param}='{{{primary_enum_param}}}')"),
-    ("What {{{primary_enum_param}}} do you have?", "{list_func_name}({primary_enum_param}='{{{primary_enum_param}}}')"),
-    ("Can I see the {{{primary_enum_param}}} please?", "{list_func_name}({primary_enum_param}='{{{primary_enum_param}}}')"),
-    ("I'd like to see {{{primary_enum_param}}}", "{list_func_name}({primary_enum_param}='{{{primary_enum_param}}}')"),
-    ("What's available in {{{primary_enum_param}}}?", "{list_func_name}({primary_enum_param}='{{{primary_enum_param}}}')"),
+{simple_templates}
 
-    # Detail function - use item_id directly in query
-    ("Tell me about item {{item_id}}", "{detail_func_name}({id_param}='{{item_id}}')"),
-    ("What's in item {{item_id}}?", "{detail_func_name}({id_param}='{{item_id}}')"),
-    ("Can you describe item {{item_id}}?", "{detail_func_name}({id_param}='{{item_id}}')"),
-    ("I'd like details on {{item_id}}", "{detail_func_name}({id_param}='{{item_id}}')"),
+{parallel_templates}
 
-    # Create function - numbers in query match numbers in ground_truth
-    ("Create an order for reference {{ref_num}} with {{quantity}} items",
-     "{create_func_name}({create_param1}={{ref_num}}, {create_param2}={{quantity}})"),
-    ("Start a new order: reference {{ref_num}}, quantity {{quantity}}",
-     "{create_func_name}({create_param1}={{ref_num}}, {create_param2}={{quantity}})"),
-]
+{multiple_templates}
 
-PARALLEL_TEMPLATES = [
-    # Multiple list calls - different enum values
-    (
-        "Show me both {{{primary_enum_param}1}} and {{{primary_enum_param}2}}",
-        ["{list_func_name}({primary_enum_param}='{{{primary_enum_param}1}}')", "{list_func_name}({primary_enum_param}='{{{primary_enum_param}2}}')"]
-    ),
-    (
-        "I want to see {{{primary_enum_param}1}} and also {{{primary_enum_param}2}}",
-        ["{list_func_name}({primary_enum_param}='{{{primary_enum_param}1}}')", "{list_func_name}({primary_enum_param}='{{{primary_enum_param}2}}')"]
-    ),
-    # List and detail
-    (
-        "Show me {{{primary_enum_param}}} and tell me about item {{item_id}}",
-        ["{list_func_name}({primary_enum_param}='{{{primary_enum_param}}}')", "{detail_func_name}({id_param}='{{item_id}}')"]
-    ),
-]
+{multi_turn_templates}
 
-MULTIPLE_TEMPLATES = [
-    # Multiple list calls in sequence
-    (
-        "First show me {{{primary_enum_param}1}}, then {{{primary_enum_param}2}}, then {{{primary_enum_param}3}}",
-        [
-            "{list_func_name}({primary_enum_param}='{{{primary_enum_param}1}}')",
-            "{list_func_name}({primary_enum_param}='{{{primary_enum_param}2}}')",
-            "{list_func_name}({primary_enum_param}='{{{primary_enum_param}3}}')"
-        ]
-    ),
-    # Multiple detail calls
-    (
-        "Tell me about item {{item_id1}}, then item {{item_id2}}",
-        [
-            "{detail_func_name}({id_param}='{{item_id1}}')",
-            "{detail_func_name}({id_param}='{{item_id2}}')"
-        ]
-    ),
-]
-
-MULTI_TURN_TEMPLATES = [
-    {{
-        "scenario": "browsing_flow",
-        "turns": [
-            {{
-                "query": "Show me the {{{primary_enum_param}}} options",
-                "expected_calls": ["{list_func_name}({primary_enum_param}='{{{primary_enum_param}}}')"],
-            }},
-            {{
-                "query": "Tell me more about item {{item_id}}",
-                "expected_calls": ["{detail_func_name}({id_param}='{{item_id}}')"],
-            }},
-        ],
-    }},
-    {{
-        "scenario": "comparison_flow",
-        "turns": [
-            {{
-                "query": "What {{{primary_enum_param}1}} do you have?",
-                "expected_calls": ["{list_func_name}({primary_enum_param}='{{{primary_enum_param}1}}')"],
-            }},
-            {{
-                "query": "And what about {{{primary_enum_param}2}}?",
-                "expected_calls": ["{list_func_name}({primary_enum_param}='{{{primary_enum_param}2}}')"],
-            }},
-        ],
-    }},
-]
-
-AGENTIC_TEMPLATES = [
-    {{
-        "query": "Is {{{primary_enum_param}}} a valid option? Just say yes or no.",
-        "context": "Check if the value is valid.",
-        "expected_response": ["yes"],
-        "match_mode": "contains",
-    }},
-    {{
-        "query": "Can you help me with item {{item_id}}? Answer yes or no.",
-        "context": "Determine if you can assist with this request.",
-        "expected_response": ["yes", "no"],
-        "match_mode": "any",
-    }},
-]
+{agentic_templates}
 
 
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_random_values(rng: random.Random) -> Dict[str, Any]:
-    """Get random values for template substitution."""
-    item = rng.choice(ITEMS)
-    items = rng.sample(ITEMS, min(2, len(ITEMS)))
-    cats = rng.sample({primary_enum_var}, min(3, len({primary_enum_var})))
-
-    return {{
-        "{primary_enum_param}": rng.choice({primary_enum_var}),
-        "{primary_enum_param}1": cats[0] if len(cats) > 0 else {primary_enum_var}[0],
-        "{primary_enum_param}2": cats[1] if len(cats) > 1 else {primary_enum_var}[0],
-        "{primary_enum_param}3": cats[2] if len(cats) > 2 else {primary_enum_var}[0],
-        "item_id": item["id"],
-        "item_name": item["name"],
-        "item_id1": items[0]["id"],
-        "item_id2": items[1]["id"] if len(items) > 1 else items[0]["id"],
-        "ref_num": rng.choice(REFERENCE_NUMBERS),
-        "quantity": rng.choice(QUANTITIES),
-        "action_id": f"ACT-{{rng.randint(1000, 9999)}}",
-    }}
+{random_values}
 
 
 # ============================================================================
@@ -881,17 +589,7 @@ def generate_test_cases(
     seed: int = 42,
     category: str = "simple",
 ) -> List[Dict[str, Any]]:
-    """
-    Generate function calling test cases.
-
-    Args:
-        count: Number of test cases to generate
-        seed: Random seed for reproducibility
-        category: Category to generate (simple, parallel, multiple, multi_turn, agentic, or all)
-
-    Returns:
-        List of test case dictionaries
-    """
+    """Generate function calling test cases."""
     rng = random.Random(seed)
     items = []
 
@@ -904,7 +602,6 @@ def generate_test_cases(
 
     for i in range(count):
         cat = rng.choice(categories)
-
         if cat == "simple":
             item = _generate_simple(rng, i)
         elif cat == "parallel":
@@ -915,20 +612,16 @@ def generate_test_cases(
             item = _generate_multi_turn(rng, i)
         elif cat == "agentic":
             item = _generate_agentic(rng, i)
-
         items.append(item)
 
     return items
 
 
 def _generate_simple(rng: random.Random, idx: int) -> Dict[str, Any]:
-    """Generate a simple test case."""
     template, gt_template = rng.choice(SIMPLE_TEMPLATES)
     values = _get_random_values(rng)
-
     query = template.format(**values)
     ground_truth = gt_template.format(**values)
-
     return {{
         "id": f"{slug}_simple_{{idx:04d}}",
         "category": "simple",
@@ -939,13 +632,10 @@ def _generate_simple(rng: random.Random, idx: int) -> Dict[str, Any]:
 
 
 def _generate_parallel(rng: random.Random, idx: int) -> Dict[str, Any]:
-    """Generate a parallel test case."""
     template, gt_templates = rng.choice(PARALLEL_TEMPLATES)
     values = _get_random_values(rng)
-
     query = template.format(**values)
     ground_truth = [gt.format(**values) for gt in gt_templates]
-
     return {{
         "id": f"{slug}_parallel_{{idx:04d}}",
         "category": "parallel",
@@ -956,13 +646,10 @@ def _generate_parallel(rng: random.Random, idx: int) -> Dict[str, Any]:
 
 
 def _generate_multiple(rng: random.Random, idx: int) -> Dict[str, Any]:
-    """Generate a multiple test case."""
     template, gt_templates = rng.choice(MULTIPLE_TEMPLATES)
     values = _get_random_values(rng)
-
     query = template.format(**values)
     ground_truth = [gt.format(**values) for gt in gt_templates]
-
     return {{
         "id": f"{slug}_multiple_{{idx:04d}}",
         "category": "multiple",
@@ -973,19 +660,13 @@ def _generate_multiple(rng: random.Random, idx: int) -> Dict[str, Any]:
 
 
 def _generate_multi_turn(rng: random.Random, idx: int) -> Dict[str, Any]:
-    """Generate a multi-turn conversation test case."""
     template = rng.choice(MULTI_TURN_TEMPLATES)
     values = _get_random_values(rng)
-
     turns = []
     for turn_template in template["turns"]:
         query = turn_template["query"].format(**values)
         expected_calls = [call.format(**values) for call in turn_template["expected_calls"]]
-        turns.append({{
-            "query": query,
-            "expected_calls": expected_calls,
-        }})
-
+        turns.append({{"query": query, "expected_calls": expected_calls}})
     return {{
         "id": f"{slug}_multi_turn_{{idx:04d}}",
         "category": "multi_turn",
@@ -997,19 +678,13 @@ def _generate_multi_turn(rng: random.Random, idx: int) -> Dict[str, Any]:
 
 
 def _generate_agentic(rng: random.Random, idx: int) -> Dict[str, Any]:
-    """Generate an agentic (text response) test case."""
     template = rng.choice(AGENTIC_TEMPLATES)
     values = _get_random_values(rng)
-
     query = template["query"].format(**values)
     context = template.get("context", "").format(**values)
-
     expected_response = template["expected_response"]
     if isinstance(expected_response, list):
-        expected_response = [resp.format(**values) if isinstance(resp, str) else resp for resp in expected_response]
-    elif isinstance(expected_response, str):
-        expected_response = expected_response.format(**values)
-
+        expected_response = [r.format(**values) if isinstance(r, str) else r for r in expected_response]
     return {{
         "id": f"{slug}_agentic_{{idx:04d}}",
         "category": "agentic",
@@ -1021,6 +696,243 @@ def _generate_agentic(rng: random.Random, idx: int) -> Dict[str, Any]:
         "ground_truth": expected_response,
     }}
 '''
+
+
+def _build_simple_templates(list_func, detail_func, create_func, process_func, vars: dict) -> str:
+    """Build SIMPLE_TEMPLATES using actual function signatures."""
+    templates = []
+
+    # List function templates
+    if list_func and vars.get("list_enum_param"):
+        func_name = list_func["name"]
+        param = vars["list_enum_param"]
+        templates.extend([
+            f'    ("Show me the {{{param}}} options", "{func_name}({param}=\'{{{param}}}\')"),',
+            f'    ("What {{{param}}} do you have?", "{func_name}({param}=\'{{{param}}}\')"),',
+            f'    ("Can I see the {{{param}}} please?", "{func_name}({param}=\'{{{param}}}\')"),',
+            f'    ("I\'d like to see {{{param}}}", "{func_name}({param}=\'{{{param}}}\')"),',
+        ])
+
+    # Detail function templates
+    if detail_func and vars.get("detail_id_param"):
+        func_name = detail_func["name"]
+        param = vars["detail_id_param"]
+        templates.extend([
+            f'    ("Tell me about item {{{param}}}", "{func_name}({param}=\'{{{param}}}\')"),',
+            f'    ("What\'s in item {{{param}}}?", "{func_name}({param}=\'{{{param}}}\')"),',
+            f'    ("Can you describe item {{{param}}}?", "{func_name}({param}=\'{{{param}}}\')"),',
+        ])
+
+    # Create function templates
+    if create_func and vars.get("create_int_param_0") and vars.get("create_int_param_1"):
+        func_name = create_func["name"]
+        p0 = vars["create_int_param_0"]
+        p1 = vars["create_int_param_1"]
+        templates.extend([
+            f'    ("Create with {p0} {{{p0}}} and {p1} {{{p1}}}", "{func_name}({p0}={{{p0}}}, {p1}={{{p1}}})"),',
+            f'    ("Start new: {p0} {{{p0}}}, {p1} {{{p1}}}", "{func_name}({p0}={{{p0}}}, {p1}={{{p1}}})"),',
+        ])
+
+    # Process function templates
+    if process_func and vars.get("process_id_param") and vars.get("process_enum_param"):
+        func_name = process_func["name"]
+        id_p = vars["process_id_param"]
+        enum_p = vars["process_enum_param"]
+        templates.extend([
+            f'    ("Process {{{id_p}}} with {enum_p} {{{enum_p}}}", "{func_name}({id_p}=\'{{{id_p}}}\', {enum_p}=\'{{{enum_p}}}\')"),',
+            f'    ("Update {{{id_p}}} to {{{enum_p}}}", "{func_name}({id_p}=\'{{{id_p}}}\', {enum_p}=\'{{{enum_p}}}\')"),',
+        ])
+
+    return "SIMPLE_TEMPLATES = [\n" + "\n".join(templates) + "\n]"
+
+
+def _build_parallel_templates(list_func, detail_func, vars: dict) -> str:
+    """Build PARALLEL_TEMPLATES."""
+    templates = []
+
+    if list_func and vars.get("list_enum_param"):
+        func_name = list_func["name"]
+        param = vars["list_enum_param"]
+        templates.append(f'''    (
+        "Show me both {{{param}1}} and {{{param}2}}",
+        ["{func_name}({param}='{{{param}1}}')", "{func_name}({param}='{{{param}2}}')"]
+    ),''')
+
+    if list_func and detail_func and vars.get("list_enum_param") and vars.get("detail_id_param"):
+        list_name = list_func["name"]
+        detail_name = detail_func["name"]
+        enum_p = vars["list_enum_param"]
+        id_p = vars["detail_id_param"]
+        templates.append(f'''    (
+        "Show me {{{enum_p}}} and tell me about item {{{id_p}}}",
+        ["{list_name}({enum_p}='{{{enum_p}}}')", "{detail_name}({id_p}='{{{id_p}}}')"]
+    ),''')
+
+    return "PARALLEL_TEMPLATES = [\n" + "\n".join(templates) + "\n]"
+
+
+def _build_multiple_templates(list_func, detail_func, vars: dict) -> str:
+    """Build MULTIPLE_TEMPLATES."""
+    templates = []
+
+    if list_func and vars.get("list_enum_param"):
+        func_name = list_func["name"]
+        param = vars["list_enum_param"]
+        templates.append(f'''    (
+        "First show me {{{param}1}}, then {{{param}2}}, then {{{param}3}}",
+        [
+            "{func_name}({param}='{{{param}1}}')",
+            "{func_name}({param}='{{{param}2}}')",
+            "{func_name}({param}='{{{param}3}}')"
+        ]
+    ),''')
+
+    if detail_func and vars.get("detail_id_param"):
+        func_name = detail_func["name"]
+        param = vars["detail_id_param"]
+        templates.append(f'''    (
+        "Tell me about item {{{param}1}}, then item {{{param}2}}",
+        [
+            "{func_name}({param}='{{{param}1}}')",
+            "{func_name}({param}='{{{param}2}}')"
+        ]
+    ),''')
+
+    return "MULTIPLE_TEMPLATES = [\n" + "\n".join(templates) + "\n]"
+
+
+def _build_multi_turn_templates(list_func, detail_func, vars: dict) -> str:
+    """Build MULTI_TURN_TEMPLATES."""
+    templates = []
+
+    if list_func and detail_func and vars.get("list_enum_param") and vars.get("detail_id_param"):
+        list_name = list_func["name"]
+        detail_name = detail_func["name"]
+        enum_p = vars["list_enum_param"]
+        id_p = vars["detail_id_param"]
+        templates.append(f'''    {{
+        "scenario": "browse_flow",
+        "turns": [
+            {{
+                "query": "Show me the {{{enum_p}}} options",
+                "expected_calls": ["{list_name}({enum_p}='{{{enum_p}}}')"],
+            }},
+            {{
+                "query": "Tell me more about item {{{id_p}}}",
+                "expected_calls": ["{detail_name}({id_p}='{{{id_p}}}')"],
+            }},
+        ],
+    }},''')
+
+    if list_func and vars.get("list_enum_param"):
+        func_name = list_func["name"]
+        param = vars["list_enum_param"]
+        templates.append(f'''    {{
+        "scenario": "compare_flow",
+        "turns": [
+            {{
+                "query": "What {{{param}1}} do you have?",
+                "expected_calls": ["{func_name}({param}='{{{param}1}}')"],
+            }},
+            {{
+                "query": "And what about {{{param}2}}?",
+                "expected_calls": ["{func_name}({param}='{{{param}2}}')"],
+            }},
+        ],
+    }},''')
+
+    return "MULTI_TURN_TEMPLATES = [\n" + "\n".join(templates) + "\n]"
+
+
+def _build_agentic_templates(vars: dict) -> str:
+    """Build AGENTIC_TEMPLATES."""
+    templates = []
+
+    if vars.get("list_enum_param"):
+        param = vars["list_enum_param"]
+        templates.append(f'''    {{
+        "query": "Is {{{param}}} a valid option? Just say yes or no.",
+        "context": "Check if the value is valid.",
+        "expected_response": ["yes"],
+        "match_mode": "contains",
+    }},''')
+
+    if vars.get("detail_id_param"):
+        param = vars["detail_id_param"]
+        templates.append(f'''    {{
+        "query": "Can you help me with item {{{param}}}? Answer yes or no.",
+        "context": "Determine if you can assist.",
+        "expected_response": ["yes", "no"],
+        "match_mode": "any",
+    }},''')
+
+    return "AGENTIC_TEMPLATES = [\n" + "\n".join(templates) + "\n]"
+
+
+def _build_random_values_func(vars: dict) -> str:
+    """Build _get_random_values function."""
+    lines = ['def _get_random_values(rng: random.Random) -> Dict[str, Any]:',
+             '    """Get random values for template substitution."""']
+
+    # Sample from list enum
+    if vars.get("list_enum_var"):
+        var = vars["list_enum_var"]
+        param = vars["list_enum_param"]
+        lines.append(f'    {param}_samples = rng.sample({var}, min(3, len({var})))')
+
+    # Sample from item IDs
+    if vars.get("detail_id_var"):
+        var = vars["detail_id_var"]
+        param = vars["detail_id_param"]
+        lines.append(f'    {param}_samples = rng.sample({var}, min(2, len({var})))')
+
+    lines.append('')
+    lines.append('    return {')
+
+    # Add list enum values
+    if vars.get("list_enum_var") and vars.get("list_enum_param"):
+        var = vars["list_enum_var"]
+        param = vars["list_enum_param"]
+        lines.append(f'        "{param}": rng.choice({var}),')
+        lines.append(f'        "{param}1": {param}_samples[0] if len({param}_samples) > 0 else {var}[0],')
+        lines.append(f'        "{param}2": {param}_samples[1] if len({param}_samples) > 1 else {var}[0],')
+        lines.append(f'        "{param}3": {param}_samples[2] if len({param}_samples) > 2 else {var}[0],')
+
+    # Add detail ID values
+    if vars.get("detail_id_var") and vars.get("detail_id_param"):
+        var = vars["detail_id_var"]
+        param = vars["detail_id_param"]
+        lines.append(f'        "{param}": rng.choice({var}),')
+        lines.append(f'        "{param}1": {param}_samples[0] if len({param}_samples) > 0 else {var}[0],')
+        lines.append(f'        "{param}2": {param}_samples[1] if len({param}_samples) > 1 else {var}[0],')
+
+    # Add create int values
+    if vars.get("create_int_var_0") and vars.get("create_int_param_0"):
+        var = vars["create_int_var_0"]
+        param = vars["create_int_param_0"]
+        lines.append(f'        "{param}": rng.choice({var}),')
+
+    if vars.get("create_int_var_1") and vars.get("create_int_param_1"):
+        var = vars["create_int_var_1"]
+        param = vars["create_int_param_1"]
+        lines.append(f'        "{param}": rng.choice({var}),')
+
+    # Add process enum values
+    if vars.get("process_enum_var") and vars.get("process_enum_param"):
+        var = vars["process_enum_var"]
+        param = vars["process_enum_param"]
+        lines.append(f'        "{param}": rng.choice({var}),')
+
+    # Add process ID (reuse detail ID)
+    if vars.get("process_id_param") and vars.get("detail_id_var"):
+        var = vars["detail_id_var"]
+        param = vars["process_id_param"]
+        if param != vars.get("detail_id_param"):
+            lines.append(f'        "{param}": rng.choice({var}),')
+
+    lines.append('    }')
+
+    return '\n'.join(lines)
 
 
 def _create_init_py(domain_name: str) -> str:
@@ -1038,35 +950,17 @@ __all__ = ["generate_test_cases"]
 
 
 def validate_generated_domain(domain_path: Path) -> Tuple[bool, List[str]]:
-    """
-    Validate a generated domain thoroughly.
-
-    Checks:
-    1. Required files exist
-    2. domain.yaml is valid YAML with proper structure
-    3. generator.py has generate_test_cases function
-    4. generator.py produces valid test cases
-    5. Test case values match function parameter schemas
-    6. All 5 categories are supported
-
-    Args:
-        domain_path: Path to domain directory
-
-    Returns:
-        Tuple of (is_valid, list_of_warnings_or_errors)
-    """
+    """Validate a generated domain."""
     import yaml
 
     issues = []
-
-    # Check required files
     required_files = ["domain.yaml", "generator.py", "__init__.py"]
+
     for filename in required_files:
         if not (domain_path / filename).exists():
             issues.append(f"ERROR: Missing required file: {filename}")
             return False, issues
 
-    # Validate domain.yaml
     try:
         with open(domain_path / "domain.yaml", 'r') as f:
             config = yaml.safe_load(f)
@@ -1078,31 +972,18 @@ def validate_generated_domain(domain_path: Path) -> Tuple[bool, List[str]]:
             issues.append("ERROR: domain.yaml missing 'functions' key")
             return False, issues
 
-        functions = config["domain"]["functions"]
-
-        # Check for problematic patterns
-        for func in functions:
-            props = func.get("parameters", {}).get("properties", {})
-            for param_name, param_def in props.items():
-                if param_def.get("type") == "array":
-                    issues.append(f"WARNING: Function '{func['name']}' has array parameter '{param_name}' - may cause Gemini errors")
-                if "default" in param_def:
-                    issues.append(f"WARNING: Function '{func['name']}' has default value for '{param_name}' - may not be supported by all providers")
-
     except yaml.YAMLError as e:
-        issues.append(f"ERROR: Invalid YAML in domain.yaml: {e}")
+        issues.append(f"ERROR: Invalid YAML: {e}")
         return False, issues
 
-    # Validate generator.py syntax
     try:
         with open(domain_path / "generator.py", 'r') as f:
             code = f.read()
         compile(code, domain_path / "generator.py", 'exec')
     except SyntaxError as e:
-        issues.append(f"ERROR: Syntax error in generator.py: {e}")
+        issues.append(f"ERROR: Syntax error: {e}")
         return False, issues
 
-    # Try to import and run generator
     try:
         import importlib.util
         spec = importlib.util.spec_from_file_location("generator", domain_path / "generator.py")
@@ -1110,63 +991,30 @@ def validate_generated_domain(domain_path: Path) -> Tuple[bool, List[str]]:
         spec.loader.exec_module(module)
 
         if not hasattr(module, 'generate_test_cases'):
-            issues.append("ERROR: generator.py missing generate_test_cases function")
+            issues.append("ERROR: Missing generate_test_cases function")
             return False, issues
 
-        # Check if SUPPORTED_CATEGORIES exists and has all categories
-        if hasattr(module, 'SUPPORTED_CATEGORIES'):
-            missing_cats = set(SUPPORTED_CATEGORIES) - set(module.SUPPORTED_CATEGORIES)
-            if missing_cats:
-                issues.append(f"WARNING: Generator missing categories: {missing_cats}")
-        else:
-            issues.append("WARNING: Generator missing SUPPORTED_CATEGORIES constant")
-
-        # Try generating test cases for each category
         for cat in SUPPORTED_CATEGORIES:
             try:
                 test_cases = module.generate_test_cases(2, seed=42, category=cat)
                 if not test_cases:
-                    issues.append(f"WARNING: No test cases generated for category '{cat}'")
-                    continue
-
-                # Validate test case structure
-                required_fields = ["id", "category", "query", "functions"]
-                for tc in test_cases:
-                    for field in required_fields:
-                        if field not in tc:
-                            issues.append(f"WARNING: Test case missing field '{field}' in category '{cat}'")
-
-                    # Check for ground_truth
-                    if "ground_truth" not in tc:
-                        issues.append(f"WARNING: Test case missing 'ground_truth' in category '{cat}'")
-
-            except ValueError as e:
-                if "Unknown category" in str(e):
-                    issues.append(f"WARNING: Category '{cat}' not supported by generator")
+                    issues.append(f"WARNING: No test cases for '{cat}'")
             except Exception as e:
-                issues.append(f"WARNING: Error generating '{cat}' test cases: {e}")
+                issues.append(f"WARNING: Error generating '{cat}': {e}")
 
     except Exception as e:
-        issues.append(f"ERROR: Error testing generator: {e}")
+        issues.append(f"ERROR: {e}")
         return False, issues
 
-    # Determine if valid (no ERROR messages)
     is_valid = not any(issue.startswith("ERROR") for issue in issues)
-
     return is_valid, issues
 
 
 def list_function_calling_domains() -> List[Dict[str, Any]]:
-    """
-    List all available function calling domains.
-
-    Returns:
-        List of domain info dictionaries
-    """
+    """List all available function calling domains."""
     import yaml
 
     domains = []
-
     if not FUNC_CALL_DOMAINS_DIR.exists():
         return domains
 
@@ -1175,7 +1023,6 @@ def list_function_calling_domains() -> List[Dict[str, Any]]:
             try:
                 with open(domain_dir / "domain.yaml", 'r') as f:
                     config = yaml.safe_load(f)
-
                 domain_info = config.get("domain", {})
                 domains.append({
                     "slug": domain_dir.name,

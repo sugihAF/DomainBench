@@ -1146,22 +1146,95 @@ def func_call_run(
 
                 start_time = time.time()
                 try:
-                    # Check if provider supports function calling
-                    if hasattr(provider, 'function_call') and functions:
-                        response = provider.function_call(
-                            model=model_config.model,
-                            messages=messages,
-                            functions=functions,
-                            temperature=0.1,
-                        )
+                    # Handle multi_turn category specially - make sequential API calls
+                    if tc_category == "multi_turn":
+                        turns = test_case.get("turns", [])
+                        turn_responses = []
+                        conversation = list(messages)  # Copy initial messages
+
+                        for turn_idx, turn in enumerate(turns):
+                            # For turn 0, messages already has the first query
+                            # For subsequent turns, add the query
+                            if turn_idx > 0:
+                                conversation.append({
+                                    "role": "user",
+                                    "content": turn.get("query", ""),
+                                })
+
+                            # Make API call for this turn
+                            if hasattr(provider, 'function_call') and functions:
+                                turn_response = provider.function_call(
+                                    model=model_config.model,
+                                    messages=conversation,
+                                    functions=functions,
+                                    temperature=0.1,
+                                )
+                            else:
+                                turn_response = provider.chat_completion(
+                                    model=model_config.model,
+                                    messages=conversation,
+                                    temperature=0.1,
+                                    tools=[{"type": "function", "function": f} for f in functions] if functions else None,
+                                )
+
+                            turn_responses.append(turn_response)
+
+                            # Add assistant response to conversation for next turn
+                            # Extract tool calls to build assistant message
+                            tool_calls = turn_response.get("tool_calls", [])
+                            assistant_content = turn_response.get("content", "")
+
+                            if tool_calls:
+                                # Build assistant message with tool calls
+                                # Ensure each tool_call has the required 'type' field for OpenAI API
+                                formatted_tool_calls = []
+                                for tc in tool_calls:
+                                    formatted_tc = {
+                                        "id": tc.get("id", f"call_{turn_idx}_{len(formatted_tool_calls)}"),
+                                        "type": "function",
+                                        "function": tc.get("function", {}),
+                                    }
+                                    formatted_tool_calls.append(formatted_tc)
+
+                                assistant_msg = {
+                                    "role": "assistant",
+                                    "content": assistant_content or None,
+                                    "tool_calls": formatted_tool_calls,
+                                }
+                                conversation.append(assistant_msg)
+
+                                # Add simulated tool responses (needed for conversation continuity)
+                                for tc in formatted_tool_calls:
+                                    tool_call_id = tc.get("id")
+                                    conversation.append({
+                                        "role": "tool",
+                                        "tool_call_id": tool_call_id,
+                                        "content": json.dumps({"status": "success"}),
+                                    })
+                            else:
+                                conversation.append({
+                                    "role": "assistant",
+                                    "content": assistant_content,
+                                })
+
+                        response = turn_responses  # List of responses, one per turn
                     else:
-                        # Fallback to chat completion with tools
-                        response = provider.chat_completion(
-                            model=model_config.model,
-                            messages=messages,
-                            temperature=0.1,
-                            tools=[{"type": "function", "function": f} for f in functions] if functions else None,
-                        )
+                        # Standard single-call handling for other categories
+                        if hasattr(provider, 'function_call') and functions:
+                            response = provider.function_call(
+                                model=model_config.model,
+                                messages=messages,
+                                functions=functions,
+                                temperature=0.1,
+                            )
+                        else:
+                            # Fallback to chat completion with tools
+                            response = provider.chat_completion(
+                                model=model_config.model,
+                                messages=messages,
+                                temperature=0.1,
+                                tools=[{"type": "function", "function": f} for f in functions] if functions else None,
+                            )
                 except Exception as e:
                     console.print(f"[yellow]Warning: {model_config.display_name} failed on {case_id}: {e}[/yellow]")
                     response = {"content": "", "tool_calls": []}
