@@ -12,6 +12,9 @@ httpx>=0.25.0
 # PDF processing (for OCR benchmark)
 PyMuPDF>=1.23.0  # fitz - fast PDF to image conversion
 
+# Web viewer
+flask>=3.0.0
+
 # Dev dependencies
 pytest>=7.0.0
 pytest-asyncio>=0.21.0

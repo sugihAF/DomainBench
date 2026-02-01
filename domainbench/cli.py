@@ -25,7 +25,42 @@ Supported Providers & Models:
 Model format: provider/model (e.g., openai/gpt-5.2, gemini/gemini-3-flash-preview)
 """,
     add_completion=False,
+    invoke_without_command=True,
 )
+
+# ASCII art banner
+BANNER = r"""
+    ,---,                        ____                                      ,---,.                                  ,---,
+  .'  .' `\                    ,'  , `.             ,--,                 ,'  .'  \                               ,--.' |
+,---.'     \    ,---.       ,-+-,.' _ |           ,--.'|         ,---, ,---.' .' |               ,---,           |  |  :
+|   |  .`\  |  '   ,'\   ,-+-. ;   , ||           |  |,      ,-+-. /  ||   |  |: |           ,-+-. /  |          :  :  :
+:   : |  '  | /   /   | ,--.'|'   |  || ,--.--.   `--'_     ,--.'|'   |:   :  :  /   ,---.  ,--.'|'   |   ,---.  :  |  |,--.
+|   ' '  ;  :.   ; ,. :|   |  ,', |  |,/       \  ,' ,'|   |   |  ,"' |:   |    ;   /     \|   |  ,"' |  /     \ |  :  '   |
+'   | ;  .  |'   | |: :|   | /  | |--'.--.  .-. | '  | |   |   | /  | ||   :     \ /    /  |   | /  | | /    / ' |  |   /' :
+|   | :  |  ''   | .; :|   : |  | ,    \__\/: . . |  | :   |   | |  | ||   |   . |.    ' / |   | |  | |.    ' /  '  :  | | |
+'   : | /  ; |   :    ||   : |  |/     ," .--.; | '  : |__ |   | |  |/ '   :  '; |'   ;   /|   | |  |/ '   ; :__ |  |  ' | :
+|   | '` ,/   \   \  / |   | |`-'     /  /  ,.  | |  | '.'||   | |--'  |   |  | ; '   |  / |   | |--'  '   | '.'||  :  :_:,'
+;   :  .'      `----'  |   ;/        ;  :   .'   \;  :    ;|   |/      |   :   /  |   :    |   |/      |   :    :|  | ,'
+|   ,.'                '---'         |  ,     .-./|  ,   / '---'       |   | ,'    \   \  /'---'        \   \  / `--''
+'---'                                 `--`---'     ---`-'              `----'       `----'               `----'
+"""
+
+console = Console()
+
+
+@app.callback()
+def main_callback(ctx: typer.Context):
+    """
+    DomainBench - LLM Benchmarking Framework
+    """
+    if ctx.invoked_subcommand is None:
+        console.print(BANNER, style="bold cyan")
+        console.print()
+        console.print("  Welcome to [bold green]DomainBench[/bold green]!", justify="center")
+        console.print("  Thank you for using DomainBench - your comprehensive LLM benchmarking framework.", justify="center")
+        console.print()
+        console.print("  Get started with: [bold yellow]domainbench --help[/bold yellow]", justify="center")
+        console.print()
 
 # Chat completion sub-app
 chat_app = typer.Typer(
@@ -137,8 +172,6 @@ Examples:
   domainbench func-call domain list
 """,
 )
-
-console = Console()
 
 
 # =============================================================================
@@ -268,7 +301,11 @@ def chat_run(
 def chat_create_domain(
     description: str = typer.Argument(
         ...,
-        help="Description of the domain to create (e.g., 'doctor assistant', 'banking customer service')"
+        help="Description of the domain to create (e.g., 'A doctor assistant that helps patients with medical questions')"
+    ),
+    name: Optional[str] = typer.Option(
+        None, "--name", "-n",
+        help="Short name for the domain folder (e.g., 'doctor_assistant'). If not provided, generated from description."
     ),
     provider: str = typer.Option(
         "openai", "--provider", "-p",
@@ -287,9 +324,9 @@ def chat_create_domain(
     Create a new chat completion domain using AI.
 
     Examples:
-        domainbench chat create-domain "doctor assistant"
-        domainbench chat create-domain "banking customer service" --provider anthropic
-        domainbench chat create-domain "tech support agent" --model gpt-5.2
+        domainbench chat create-domain "A doctor assistant" -n doctor_assistant
+        domainbench chat create-domain "banking customer service" -n banking_support --provider anthropic
+        domainbench chat create-domain "tech support agent" -n tech_support --model gpt-5.2
     """
     from dotenv import load_dotenv
     load_dotenv()
@@ -315,6 +352,7 @@ def chat_create_domain(
                 provider=provider,
                 model=model,
                 output_dir=output_dir,
+                domain_name=name,
             )
 
         console.print(f"[green]✓[/green] Domain files created at: {domain_path}")
@@ -1811,6 +1849,41 @@ def version():
     """
     from domainbench import __version__
     console.print(f"DomainBench v{__version__}")
+
+
+@app.command()
+def viewer(
+    results_dir: Optional[Path] = typer.Option(
+        None, "--results", "-r",
+        help="Directory containing benchmark results (default: ./results)"
+    ),
+    host: str = typer.Option(
+        "127.0.0.1", "--host", "-h",
+        help="Host to bind the server to"
+    ),
+    port: int = typer.Option(
+        5000, "--port", "-p",
+        help="Port to run the server on"
+    ),
+    debug: bool = typer.Option(
+        False, "--debug",
+        help="Run in debug mode"
+    ),
+):
+    """
+    Launch the web-based result viewer.
+
+    Opens a local web interface to visualize benchmark results with charts
+    and detailed breakdowns for each capability (chat, ocr, function calling).
+
+    Examples:
+      domainbench viewer
+      domainbench viewer -r ./my_results -p 8080
+    """
+    from domainbench.viewer import run_viewer
+
+    results_path = str(results_dir) if results_dir else None
+    run_viewer(results_dir=results_path, host=host, port=port, debug=debug)
 
 
 # Register sub-apps
