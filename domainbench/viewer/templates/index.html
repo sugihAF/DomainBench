@@ -1,0 +1,1555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DomainBench Viewer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            /* Base colors */
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-card: #21262d;
+            --bg-card-hover: #2d333b;
+            --border: #30363d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+
+            /* Capability accent colors */
+            --chat-accent: #00d9ff;
+            --chat-accent-dim: rgba(0, 217, 255, 0.15);
+            --ocr-accent: #ffb000;
+            --ocr-accent-dim: rgba(255, 176, 0, 0.15);
+            --func-accent: #ff0080;
+            --func-accent-dim: rgba(255, 0, 128, 0.15);
+
+            /* Status colors */
+            --win: #3fb950;
+            --tie: #f0b72f;
+            --loss: #f85149;
+
+            /* Current accent (changes based on capability) */
+            --accent: var(--chat-accent);
+            --accent-dim: var(--chat-accent-dim);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'IBM Plex Sans', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        /* Layout */
+        .app {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow-y: auto;
+        }
+
+        .logo {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo::before {
+            content: '>';
+            opacity: 0.5;
+        }
+
+        .logo-text {
+            background: linear-gradient(135deg, var(--accent) 0%, var(--text-primary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* Form controls */
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .control-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+        }
+
+        select {
+            font-family: 'IBM Plex Sans', sans-serif;
+            font-size: 14px;
+            padding: 12px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238b949e' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+        }
+
+        select:hover {
+            border-color: var(--accent);
+            background-color: var(--bg-card-hover);
+        }
+
+        select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-dim);
+        }
+
+        /* Result list */
+        .result-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .result-item {
+            padding: 14px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .result-item:hover {
+            border-color: var(--accent);
+            background: var(--bg-card-hover);
+            transform: translateX(4px);
+        }
+
+        .result-item.active {
+            border-color: var(--accent);
+            background: var(--accent-dim);
+        }
+
+        .result-item-name {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+            word-break: break-all;
+        }
+
+        .result-item-meta {
+            font-size: 12px;
+            color: var(--text-secondary);
+            display: flex;
+            gap: 12px;
+        }
+
+        .result-item-meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* Main content */
+        .main {
+            padding: 32px 40px;
+            overflow-y: auto;
+        }
+
+        /* Empty state */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 60vh;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+
+        .empty-state h2 {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 18px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        .empty-state p {
+            font-size: 14px;
+            max-width: 400px;
+        }
+
+        /* Dashboard header */
+        .dashboard-header {
+            margin-bottom: 32px;
+        }
+
+        .dashboard-title {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .dashboard-meta {
+            font-size: 14px;
+            color: var(--text-secondary);
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .dashboard-meta span {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .capability-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            font-weight: 500;
+            background: var(--accent-dim);
+            color: var(--accent);
+            border: 1px solid var(--accent);
+        }
+
+        /* Stats grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.2s ease;
+        }
+
+        .stat-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+
+        .stat-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 32px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .stat-value.win { color: var(--win); }
+        .stat-value.tie { color: var(--tie); }
+        .stat-value.loss { color: var(--loss); }
+        .stat-value.accent { color: var(--accent); }
+
+        /* Charts section */
+        .charts-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        .chart-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+        }
+
+        .chart-title {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 20px;
+            color: var(--text-primary);
+        }
+
+        .chart-container {
+            position: relative;
+            height: 280px;
+        }
+
+        /* Model comparison */
+        .model-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 32px;
+        }
+
+        .model-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .model-card.winner::before {
+            content: 'WINNER';
+            position: absolute;
+            top: 12px;
+            right: -28px;
+            transform: rotate(45deg);
+            background: var(--win);
+            color: var(--bg-primary);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            font-weight: 600;
+            padding: 4px 40px;
+        }
+
+        .model-name {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--accent);
+        }
+
+        .model-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .model-stat {
+            text-align: center;
+            padding: 12px 8px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+        }
+
+        .model-stat-value {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .model-stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .model-score {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .model-score-bar {
+            flex: 1;
+            height: 8px;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .model-score-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+
+        .model-score-value {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 14px;
+            font-weight: 600;
+            min-width: 45px;
+        }
+
+        /* Detailed results */
+        .results-section {
+            margin-top: 32px;
+        }
+
+        .section-title {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 20px;
+            background: var(--accent);
+            border-radius: 2px;
+        }
+
+        .result-accordion {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .result-accordion-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .result-accordion-header {
+            padding: 16px 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: background 0.2s ease;
+        }
+
+        .result-accordion-header:hover {
+            background: var(--bg-card-hover);
+        }
+
+        .result-accordion-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .result-id {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .result-category {
+            font-size: 12px;
+            padding: 3px 8px;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            color: var(--text-secondary);
+        }
+
+        .result-winner-badge {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            font-weight: 500;
+            padding: 4px 10px;
+            border-radius: 4px;
+        }
+
+        .result-winner-badge.win-model-a { background: rgba(0, 217, 255, 0.15); color: #00d9ff; }
+        .result-winner-badge.win-model-b { background: rgba(255, 0, 128, 0.15); color: #ff0080; }
+        .result-winner-badge.tie { background: rgba(240, 183, 47, 0.15); color: var(--tie); }
+
+        .result-accordion-content {
+            display: none;
+            padding: 0 20px 20px;
+            border-top: 1px solid var(--border);
+        }
+
+        .result-accordion-item.open .result-accordion-content {
+            display: block;
+        }
+
+        .result-accordion-arrow {
+            transition: transform 0.2s ease;
+            color: var(--text-secondary);
+        }
+
+        .result-accordion-item.open .result-accordion-arrow {
+            transform: rotate(180deg);
+        }
+
+        /* Response comparison */
+        .response-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .response-card {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .response-model {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--accent);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .response-score {
+            color: var(--text-secondary);
+        }
+
+        .response-text {
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--text-primary);
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        .judge-reasons {
+            margin-top: 16px;
+            padding: 16px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border-left: 3px solid var(--accent);
+        }
+
+        .judge-reasons-title {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .judge-reasons ul {
+            list-style: none;
+            font-size: 13px;
+            color: var(--text-primary);
+        }
+
+        .judge-reasons li {
+            padding: 6px 0;
+            padding-left: 16px;
+            position: relative;
+        }
+
+        .judge-reasons li::before {
+            content: '>';
+            position: absolute;
+            left: 0;
+            color: var(--accent);
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        /* Category breakdown table */
+        .category-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .category-table th,
+        .category-table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .category-table th {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+            background: var(--bg-secondary);
+        }
+
+        .category-table td {
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .category-table tr:hover td {
+            background: var(--bg-card-hover);
+        }
+
+        /* OCR specific */
+        .score-gauge {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 20px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+
+        .gauge-circle {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: conic-gradient(var(--accent) calc(var(--score) * 3.6deg), var(--bg-card) 0);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .gauge-circle::before {
+            content: '';
+            position: absolute;
+            width: 70px;
+            height: 70px;
+            background: var(--bg-secondary);
+            border-radius: 50%;
+        }
+
+        .gauge-value {
+            position: relative;
+            z-index: 1;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .gauge-label {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        /* Function calling specific */
+        .accuracy-bars {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .accuracy-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .accuracy-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            min-width: 100px;
+            color: var(--text-secondary);
+        }
+
+        .accuracy-bar {
+            flex: 1;
+            height: 24px;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .accuracy-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 8px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--bg-primary);
+            min-width: fit-content;
+        }
+
+        .accuracy-count {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            min-width: 60px;
+            text-align: right;
+            color: var(--text-secondary);
+        }
+
+        /* Loading state */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+
+        .loading::after {
+            content: '';
+            width: 24px;
+            height: 24px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-left: 12px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .app {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                position: relative;
+                height: auto;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+            }
+
+            .result-list {
+                max-height: 200px;
+            }
+
+            .charts-section {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <aside class="sidebar">
+            <div class="logo">
+                <span class="logo-text">DOMAINBENCH</span>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Capability</label>
+                <select id="capability-select">
+                    <option value="">Select capability...</option>
+                    <option value="chat_completion">Chat Completion</option>
+                    <option value="ocr">OCR / Vision</option>
+                    <option value="function_calling">Function Calling</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Results</label>
+                <div class="result-list" id="result-list">
+                    <div class="empty-state" style="padding: 20px;">
+                        <p>Select a capability to view results</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main" id="main-content">
+            <div class="empty-state">
+                <div class="empty-state-icon">&#9776;</div>
+                <h2>Welcome to DomainBench Viewer</h2>
+                <p>Select a capability and result file from the sidebar to visualize benchmark results.</p>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // State
+        let currentCapability = null;
+        let currentResult = null;
+        let charts = {};
+
+        // DOM elements
+        const capabilitySelect = document.getElementById('capability-select');
+        const resultList = document.getElementById('result-list');
+        const mainContent = document.getElementById('main-content');
+
+        // Color schemes per capability
+        const capabilityColors = {
+            chat_completion: { accent: '#00d9ff', dim: 'rgba(0, 217, 255, 0.15)' },
+            ocr: { accent: '#ffb000', dim: 'rgba(255, 176, 0, 0.15)' },
+            function_calling: { accent: '#ff0080', dim: 'rgba(255, 0, 128, 0.15)' }
+        };
+
+        // Update accent color
+        function setAccentColor(capability) {
+            const colors = capabilityColors[capability] || capabilityColors.chat_completion;
+            document.documentElement.style.setProperty('--accent', colors.accent);
+            document.documentElement.style.setProperty('--accent-dim', colors.dim);
+        }
+
+        // Fetch capabilities on load
+        async function init() {
+            try {
+                const response = await fetch('/api/capabilities');
+                const data = await response.json();
+
+                // Disable options that don't have results
+                Array.from(capabilitySelect.options).forEach(opt => {
+                    if (opt.value && !data.capabilities.includes(opt.value)) {
+                        opt.disabled = true;
+                        opt.textContent += ' (no results)';
+                    }
+                });
+            } catch (error) {
+                console.error('Failed to fetch capabilities:', error);
+            }
+        }
+
+        // Load results for a capability
+        async function loadResults(capability) {
+            if (!capability) {
+                resultList.innerHTML = '<div class="empty-state" style="padding: 20px;"><p>Select a capability to view results</p></div>';
+                return;
+            }
+
+            setAccentColor(capability);
+            resultList.innerHTML = '<div class="loading">Loading results</div>';
+
+            try {
+                const response = await fetch(`/api/results/${capability}`);
+                const data = await response.json();
+
+                if (data.results.length === 0) {
+                    resultList.innerHTML = '<div class="empty-state" style="padding: 20px;"><p>No results found for this capability</p></div>';
+                    return;
+                }
+
+                resultList.innerHTML = data.results.map(r => `
+                    <div class="result-item" data-filename="${r.filename}" onclick="loadResult('${capability}', '${r.filename}')">
+                        <div class="result-item-name">${r.benchmark_name || r.filename}</div>
+                        <div class="result-item-meta">
+                            <span>${r.total_test_cases} tests</span>
+                            <span>${r.models.length} models</span>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Failed to load results:', error);
+                resultList.innerHTML = '<div class="empty-state" style="padding: 20px;"><p>Failed to load results</p></div>';
+            }
+        }
+
+        // Load a specific result
+        async function loadResult(capability, filename) {
+            // Update active state
+            document.querySelectorAll('.result-item').forEach(el => el.classList.remove('active'));
+            document.querySelector(`.result-item[data-filename="${filename}"]`)?.classList.add('active');
+
+            mainContent.innerHTML = '<div class="loading">Loading visualization</div>';
+
+            try {
+                const response = await fetch(`/api/result/${capability}/${filename}`);
+                const data = await response.json();
+                currentResult = data;
+                currentCapability = capability;
+
+                // Render based on capability
+                switch (capability) {
+                    case 'chat_completion':
+                        renderChatCompletion(data);
+                        break;
+                    case 'ocr':
+                        renderOCR(data);
+                        break;
+                    case 'function_calling':
+                        renderFunctionCalling(data);
+                        break;
+                }
+            } catch (error) {
+                console.error('Failed to load result:', error);
+                mainContent.innerHTML = '<div class="empty-state"><h2>Failed to load result</h2><p>Check the console for details</p></div>';
+            }
+        }
+
+        // Format capability name
+        function formatCapability(cap) {
+            return cap.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        }
+
+        // Render Chat Completion results
+        function renderChatCompletion(data) {
+            const summary = data.summary || {};
+            const models = summary.models || {};
+            const modelNames = Object.keys(models);
+            const detailed = data.detailed_results || [];
+
+            // Determine overall winner
+            let overallWinner = summary.overall_winner || 'tie';
+            if (modelNames.length === 2) {
+                const [m1, m2] = modelNames;
+                if (models[m1]?.total_wins > models[m2]?.total_wins) overallWinner = m1;
+                else if (models[m2]?.total_wins > models[m1]?.total_wins) overallWinner = m2;
+            }
+
+            mainContent.innerHTML = `
+                <div class="dashboard-header">
+                    <h1 class="dashboard-title">${data.benchmark_name || 'Benchmark Results'}</h1>
+                    <div class="dashboard-meta">
+                        <span class="capability-badge">${formatCapability(currentCapability)}</span>
+                        <span>${summary.total_test_cases || 0} test cases</span>
+                        <span>${data.timestamp || ''}</span>
+                    </div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Total Tests</div>
+                        <div class="stat-value accent">${summary.total_test_cases || 0}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Models Compared</div>
+                        <div class="stat-value">${modelNames.length}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Overall Winner</div>
+                        <div class="stat-value win">${overallWinner}</div>
+                    </div>
+                </div>
+
+                <div class="model-cards">
+                    ${modelNames.map(name => {
+                        const m = models[name];
+                        const isWinner = name === overallWinner && overallWinner !== 'tie';
+                        return `
+                            <div class="model-card ${isWinner ? 'winner' : ''}">
+                                <div class="model-name">${name}</div>
+                                <div class="model-stats">
+                                    <div class="model-stat">
+                                        <div class="model-stat-value" style="color: var(--win)">${m.total_wins || 0}</div>
+                                        <div class="model-stat-label">Wins</div>
+                                    </div>
+                                    <div class="model-stat">
+                                        <div class="model-stat-value" style="color: var(--tie)">${m.total_ties || 0}</div>
+                                        <div class="model-stat-label">Ties</div>
+                                    </div>
+                                    <div class="model-stat">
+                                        <div class="model-stat-value" style="color: var(--loss)">${m.total_losses || 0}</div>
+                                        <div class="model-stat-label">Losses</div>
+                                    </div>
+                                </div>
+                                <div class="model-score">
+                                    <div class="model-score-bar">
+                                        <div class="model-score-fill" style="width: ${(m.avg_score || 0) * 10}%"></div>
+                                    </div>
+                                    <div class="model-score-value">${(m.avg_score || 0).toFixed(1)}/10</div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+
+                <div class="charts-section">
+                    <div class="chart-card">
+                        <div class="chart-title">Win Distribution</div>
+                        <div class="chart-container">
+                            <canvas id="winChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-title">Average Scores</div>
+                        <div class="chart-container">
+                            <canvas id="scoreChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                ${renderCategoryBreakdown(summary.by_category, modelNames)}
+
+                <div class="results-section">
+                    <h2 class="section-title">Detailed Results</h2>
+                    <div class="result-accordion">
+                        ${detailed.slice(0, 50).map((r, i) => renderDetailedResult(r, i, modelNames)).join('')}
+                        ${detailed.length > 50 ? `<p style="color: var(--text-secondary); padding: 16px;">Showing first 50 of ${detailed.length} results</p>` : ''}
+                    </div>
+                </div>
+            `;
+
+            // Render charts
+            renderWinChart(models, modelNames);
+            renderScoreChart(models, modelNames);
+        }
+
+        function renderCategoryBreakdown(byCategory, modelNames) {
+            if (!byCategory || Object.keys(byCategory).length === 0) return '';
+
+            const categories = Object.keys(byCategory);
+            return `
+                <div class="chart-card" style="margin-bottom: 32px;">
+                    <div class="chart-title">Performance by Category</div>
+                    <table class="category-table">
+                        <thead>
+                            <tr>
+                                <th>Category</th>
+                                ${modelNames.map(n => `<th>${n}</th>`).join('')}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${categories.map(cat => `
+                                <tr>
+                                    <td>${cat}</td>
+                                    ${modelNames.map(n => {
+                                        const stats = byCategory[cat]?.[n] || { wins: 0, ties: 0 };
+                                        return `<td><span style="color: var(--win)">${stats.wins}W</span> / <span style="color: var(--tie)">${stats.ties}T</span></td>`;
+                                    }).join('')}
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function renderDetailedResult(result, index, modelNames) {
+            const responses = result.responses || {};
+            const winner = result.winner;
+            const responseModels = Object.keys(responses);
+
+            // Determine winner by comparing scores (more reliable than A/B mapping)
+            let winnerBadge = '';
+            if (winner === 'tie') {
+                winnerBadge = '<span class="result-winner-badge tie">Tie</span>';
+            } else {
+                // Find the model with the higher score
+                let winnerModel = null;
+                let highestScore = -1;
+                for (const [model, resp] of Object.entries(responses)) {
+                    if ((resp.score || 0) > highestScore) {
+                        highestScore = resp.score || 0;
+                        winnerModel = model;
+                    }
+                }
+                if (winnerModel) {
+                    // Use different color based on model position (first model = cyan, second = magenta)
+                    const isFirstModel = modelNames.indexOf(winnerModel) === 0 ||
+                                        (modelNames.indexOf(winnerModel) === -1 && responseModels.indexOf(winnerModel) === 0);
+                    const badgeClass = isFirstModel ? 'win-model-a' : 'win-model-b';
+                    winnerBadge = `<span class="result-winner-badge ${badgeClass}">${winnerModel} wins</span>`;
+                }
+            }
+
+            return `
+                <div class="result-accordion-item" onclick="this.classList.toggle('open')">
+                    <div class="result-accordion-header">
+                        <div class="result-accordion-title">
+                            <span class="result-id">${result.test_id || `Test ${index + 1}`}</span>
+                            <span class="result-category">${result.category || 'general'}</span>
+                            ${winnerBadge}
+                        </div>
+                        <span class="result-accordion-arrow">&#9660;</span>
+                    </div>
+                    <div class="result-accordion-content">
+                        <div class="response-grid">
+                            ${Object.entries(responses).map(([model, resp], idx) => {
+                                const modelColor = idx === 0 ? '#00d9ff' : '#ff0080';
+                                return `
+                                <div class="response-card">
+                                    <div class="response-model" style="color: ${modelColor}">
+                                        ${model}
+                                        <span class="response-score">Score: ${(resp.score || 0).toFixed(1)}</span>
+                                    </div>
+                                    <div class="response-text">${escapeHtml(resp.response || 'No response')}</div>
+                                </div>
+                            `}).join('')}
+                        </div>
+                        ${result.judge_reasons?.length ? `
+                            <div class="judge-reasons">
+                                <div class="judge-reasons-title">Judge Reasoning</div>
+                                <ul>
+                                    ${result.judge_reasons.map(r => `<li>${escapeHtml(r)}</li>`).join('')}
+                                </ul>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderWinChart(models, modelNames) {
+            const ctx = document.getElementById('winChart');
+            if (!ctx) return;
+
+            // Destroy existing chart
+            if (charts.winChart) charts.winChart.destroy();
+
+            const data = modelNames.map(n => models[n]?.total_wins || 0);
+            const ties = modelNames.length > 0 ? (models[modelNames[0]]?.total_ties || 0) : 0;
+
+            charts.winChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: [...modelNames, 'Ties'],
+                    datasets: [{
+                        data: [...data, ties],
+                        backgroundColor: ['#3fb950', '#f85149', '#f0b72f'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: '#8b949e', font: { family: 'IBM Plex Mono' } }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderScoreChart(models, modelNames) {
+            const ctx = document.getElementById('scoreChart');
+            if (!ctx) return;
+
+            if (charts.scoreChart) charts.scoreChart.destroy();
+
+            charts.scoreChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: modelNames,
+                    datasets: [{
+                        label: 'Average Score',
+                        data: modelNames.map(n => models[n]?.avg_score || 0),
+                        backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--accent'),
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 10,
+                            grid: { color: '#30363d' },
+                            ticks: { color: '#8b949e' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#8b949e', font: { family: 'IBM Plex Mono' } }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        // Render OCR results
+        function renderOCR(data) {
+            const summary = data.summary || {};
+            const models = summary.models || {};
+            const modelNames = Object.keys(models);
+            const detailed = data.detailed_results || [];
+
+            mainContent.innerHTML = `
+                <div class="dashboard-header">
+                    <h1 class="dashboard-title">${data.benchmark_name || 'OCR Benchmark Results'}</h1>
+                    <div class="dashboard-meta">
+                        <span class="capability-badge">${formatCapability(currentCapability)}</span>
+                        <span>${summary.total_test_cases || 0} test cases</span>
+                        <span>${data.timestamp || ''}</span>
+                    </div>
+                </div>
+
+                <div class="model-cards">
+                    ${modelNames.map(name => {
+                        const m = models[name];
+                        const avgScore = m.avg_score || 0;
+                        return `
+                            <div class="model-card">
+                                <div class="model-name">${name}</div>
+                                <div class="score-gauge">
+                                    <div class="gauge-circle" style="--score: ${avgScore}">
+                                        <span class="gauge-value">${avgScore.toFixed(0)}%</span>
+                                    </div>
+                                    <div class="gauge-label">
+                                        <div style="font-size: 18px; font-weight: 600; color: var(--text-primary);">Overall Accuracy</div>
+                                        <div style="margin-top: 8px;">
+                                            <span style="color: var(--win)">${m.total_wins || 0} wins</span> /
+                                            <span style="color: var(--tie)">${m.total_ties || 0} ties</span> /
+                                            <span style="color: var(--loss)">${m.total_losses || 0} losses</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+
+                <div class="charts-section">
+                    <div class="chart-card">
+                        <div class="chart-title">Score Distribution</div>
+                        <div class="chart-container">
+                            <canvas id="ocrScoreChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="results-section">
+                    <h2 class="section-title">Detailed Results</h2>
+                    <div class="result-accordion">
+                        ${detailed.slice(0, 30).map((r, i) => renderOCRDetailedResult(r, i, modelNames)).join('')}
+                    </div>
+                </div>
+            `;
+
+            // Render OCR score chart
+            renderOCRScoreChart(models, modelNames);
+        }
+
+        function renderOCRDetailedResult(result, index, modelNames) {
+            const responses = result.responses || {};
+            return `
+                <div class="result-accordion-item" onclick="this.classList.toggle('open')">
+                    <div class="result-accordion-header">
+                        <div class="result-accordion-title">
+                            <span class="result-id">${result.test_id || `Test ${index + 1}`}</span>
+                            ${Object.entries(responses).map(([model, resp]) =>
+                                `<span style="color: var(--text-secondary)">${model}: ${(resp.score || 0).toFixed(0)}%</span>`
+                            ).join(' | ')}
+                        </div>
+                        <span class="result-accordion-arrow">&#9660;</span>
+                    </div>
+                    <div class="result-accordion-content">
+                        <div class="response-grid">
+                            ${Object.entries(responses).map(([model, resp]) => `
+                                <div class="response-card">
+                                    <div class="response-model">${model}</div>
+                                    <div class="response-text" style="font-size: 12px;">${escapeHtml(JSON.stringify(resp.response || resp, null, 2).slice(0, 500))}...</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderOCRScoreChart(models, modelNames) {
+            const ctx = document.getElementById('ocrScoreChart');
+            if (!ctx) return;
+
+            if (charts.ocrScoreChart) charts.ocrScoreChart.destroy();
+
+            charts.ocrScoreChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: modelNames,
+                    datasets: [{
+                        label: 'Average Score (%)',
+                        data: modelNames.map(n => models[n]?.avg_score || 0),
+                        backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--accent'),
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            max: 100,
+                            grid: { color: '#30363d' },
+                            ticks: { color: '#8b949e' }
+                        },
+                        y: {
+                            grid: { display: false },
+                            ticks: { color: '#8b949e', font: { family: 'IBM Plex Mono' } }
+                        }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        // Render Function Calling results
+        function renderFunctionCalling(data) {
+            const summary = data.summary || {};
+            const models = summary.models || {};
+            const modelNames = Object.keys(models);
+            const detailed = data.detailed_results || [];
+            const byCategory = summary.by_category || {};
+
+            mainContent.innerHTML = `
+                <div class="dashboard-header">
+                    <h1 class="dashboard-title">${data.benchmark_name || 'Function Calling Results'}</h1>
+                    <div class="dashboard-meta">
+                        <span class="capability-badge">${formatCapability(currentCapability)}</span>
+                        <span>${summary.total_test_cases || 0} test cases</span>
+                        <span>${data.timestamp || ''}</span>
+                    </div>
+                </div>
+
+                <div class="stats-grid">
+                    ${modelNames.map(name => {
+                        const m = models[name];
+                        return `
+                            <div class="stat-card">
+                                <div class="stat-label">${name}</div>
+                                <div class="stat-value accent">${(m.avg_score || 0).toFixed(1)}%</div>
+                                <div style="margin-top: 8px; font-size: 12px; color: var(--text-secondary);">
+                                    <span style="color: var(--win)">${m.total_wins || 0}W</span> /
+                                    <span style="color: var(--tie)">${m.total_ties || 0}T</span> /
+                                    <span style="color: var(--loss)">${m.total_losses || 0}L</span>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+
+                <div class="charts-section">
+                    <div class="chart-card">
+                        <div class="chart-title">Accuracy by Category</div>
+                        <div class="chart-container">
+                            <canvas id="categoryChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-title">Model Comparison</div>
+                        <div class="chart-container">
+                            <canvas id="comparisonChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="results-section">
+                    <h2 class="section-title">Detailed Results</h2>
+                    <div class="result-accordion">
+                        ${detailed.slice(0, 50).map((r, i) => renderFuncDetailedResult(r, i, modelNames)).join('')}
+                    </div>
+                </div>
+            `;
+
+            // Render charts
+            renderCategoryChart(byCategory, modelNames);
+            renderComparisonChart(models, modelNames);
+        }
+
+        function renderFuncDetailedResult(result, index, modelNames) {
+            const responses = result.responses || {};
+            const isCorrect = Object.values(responses).some(r => r.score >= 100);
+
+            return `
+                <div class="result-accordion-item" onclick="this.classList.toggle('open')">
+                    <div class="result-accordion-header">
+                        <div class="result-accordion-title">
+                            <span class="result-id">${result.test_id || `Test ${index + 1}`}</span>
+                            <span class="result-category">${result.category || 'general'}</span>
+                            <span class="result-winner-badge ${isCorrect ? 'win-a' : 'win-b'}">${isCorrect ? 'PASS' : 'FAIL'}</span>
+                        </div>
+                        <span class="result-accordion-arrow">&#9660;</span>
+                    </div>
+                    <div class="result-accordion-content">
+                        <div class="response-grid">
+                            ${Object.entries(responses).map(([model, resp]) => `
+                                <div class="response-card">
+                                    <div class="response-model">
+                                        ${model}
+                                        <span class="response-score" style="color: ${resp.score >= 100 ? 'var(--win)' : 'var(--loss)'}">
+                                            ${resp.score >= 100 ? 'PASS' : 'FAIL'}
+                                        </span>
+                                    </div>
+                                    <div class="response-text">${escapeHtml(resp.response || 'No response')}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderCategoryChart(byCategory, modelNames) {
+            const ctx = document.getElementById('categoryChart');
+            if (!ctx) return;
+
+            if (charts.categoryChart) charts.categoryChart.destroy();
+
+            const categories = Object.keys(byCategory);
+            const colors = ['#00d9ff', '#ff0080', '#ffb000', '#3fb950', '#a371f7'];
+
+            charts.categoryChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: categories,
+                    datasets: modelNames.map((model, i) => ({
+                        label: model,
+                        data: categories.map(cat => byCategory[cat]?.[model]?.wins || 0),
+                        backgroundColor: colors[i % colors.length],
+                        borderRadius: 4
+                    }))
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: '#30363d' },
+                            ticks: { color: '#8b949e' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#8b949e', font: { family: 'IBM Plex Mono', size: 10 } }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: '#8b949e', font: { family: 'IBM Plex Mono' } }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderComparisonChart(models, modelNames) {
+            const ctx = document.getElementById('comparisonChart');
+            if (!ctx) return;
+
+            if (charts.comparisonChart) charts.comparisonChart.destroy();
+
+            charts.comparisonChart = new Chart(ctx, {
+                type: 'radar',
+                data: {
+                    labels: ['Wins', 'Ties', 'Avg Score', 'Total Tests'],
+                    datasets: modelNames.map((model, i) => {
+                        const m = models[model] || {};
+                        return {
+                            label: model,
+                            data: [
+                                m.total_wins || 0,
+                                m.total_ties || 0,
+                                (m.avg_score || 0) / 10,
+                                (m.total_wins || 0) + (m.total_ties || 0) + (m.total_losses || 0)
+                            ],
+                            borderColor: i === 0 ? '#00d9ff' : '#ff0080',
+                            backgroundColor: i === 0 ? 'rgba(0, 217, 255, 0.1)' : 'rgba(255, 0, 128, 0.1)',
+                            borderWidth: 2
+                        };
+                    })
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        r: {
+                            grid: { color: '#30363d' },
+                            angleLines: { color: '#30363d' },
+                            pointLabels: { color: '#8b949e', font: { family: 'IBM Plex Mono' } },
+                            ticks: { display: false }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: '#8b949e', font: { family: 'IBM Plex Mono' } }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Utility: escape HTML
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Event listeners
+        capabilitySelect.addEventListener('change', (e) => {
+            currentCapability = e.target.value;
+            loadResults(currentCapability);
+            mainContent.innerHTML = '<div class="empty-state"><h2>Select a result file</h2><p>Choose a benchmark result from the sidebar to visualize</p></div>';
+        });
+
+        // Initialize
+        init();
+    </script>
+</body>
+</html>
