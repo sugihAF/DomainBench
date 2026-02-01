@@ -129,12 +129,13 @@ domainbench chat create-domain DESCRIPTION [OPTIONS]
 
 | Argument | Type | Required | Description |
 |----------|------|----------|-------------|
-| `DESCRIPTION` | TEXT | ✅ | Domain description (e.g., "doctor assistant") |
+| `DESCRIPTION` | TEXT | ✅ | Domain description (e.g., "A doctor assistant that helps patients with medical questions") |
 
 **Options:**
 
 | Option | Short | Type | Default | Description |
 |--------|-------|------|---------|-------------|
+| `--name` | `-n` | TEXT | - | Short name for the domain folder (e.g., "doctor_assistant"). If not provided, generated from description. |
 | `--provider` | `-p` | TEXT | `openai` | LLM provider for generation |
 | `--model` | `-m` | TEXT | `gpt-5.2-2025-12-11` | Model to use for generation |
 | `--output-dir` | `-o` | PATH | - | Custom output directory (default: builtin domains) |
@@ -148,20 +149,23 @@ domainbench chat create-domain DESCRIPTION [OPTIONS]
 **Examples:**
 
 ```bash
-# Simple domain creation
-domainbench chat create-domain "doctor assistant"
+# Simple domain creation with custom name
+domainbench chat create-domain "A doctor assistant that helps patients" -n doctor_assistant
 
 # With specific provider
-domainbench chat create-domain "banking customer service" \
+domainbench chat create-domain "A banking customer service agent" \
+  -n banking_support \
   --provider anthropic \
   --model claude-4.5-sonnet
 
 # Save to custom directory
-domainbench chat create-domain "tech support agent" \
+domainbench chat create-domain "A tech support agent for software issues" \
+  -n tech_support \
   -o ./my_domains
 
 # Use Gemini for generation
-domainbench chat create-domain "legal advisor" \
+domainbench chat create-domain "A legal advisor assistant" \
+  -n legal_advisor \
   --provider gemini \
   --model gemini-3-pro-preview
 ```
@@ -276,7 +280,7 @@ Available Chat Completion Domains
 
 ```bash
 # 1. Create a new domain
-domainbench chat create-domain "customer service agent"
+domainbench chat create-domain "A customer service agent for retail" -n customer_service
 
 # 2. Generate test cases
 domainbench chat generate -d customer_service_agent -n 100 -o cs_test.jsonl
@@ -322,7 +326,7 @@ domainbench chat run \
 ### Option 1: AI-Generated (Recommended)
 
 ```bash
-domainbench chat create-domain "your domain description"
+domainbench chat create-domain "Your domain description here" -n your_domain_name
 ```
 
 This creates:
@@ -591,7 +595,7 @@ domainbench chat run --domain ./path/to/domain/
 ls domainbench/domains/your_domain/generator.py
 
 # Or create domain first
-domainbench chat create-domain "your domain"
+domainbench chat create-domain "Your domain description" -n your_domain
 ```
 
 **Issue**: Judge API errors

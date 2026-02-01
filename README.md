@@ -48,6 +48,32 @@ Tool use and function calling benchmarks using **BFCL-style AST evaluation**.
 
 ## Installation
 
+### Quick Install (Recommended)
+
+Use the provided installation scripts that automatically set up DomainBench globally:
+
+**Windows (PowerShell):**
+```powershell
+.\install.ps1
+```
+
+**Windows (Command Prompt):**
+```cmd
+install.bat
+```
+
+**macOS/Linux:**
+```bash
+chmod +x install.sh
+./install.sh
+```
+
+The scripts offer two installation methods:
+1. **pipx** (recommended) - Installs in an isolated environment with automatic PATH setup
+2. **pip --user** - Installs to user site-packages
+
+### Manual Installation
+
 ```bash
 # Clone the repository
 git clone https://github.com/sugihAF/DomainBench.git
@@ -145,6 +171,7 @@ See [capabilities/function_calling/README.md](domainbench/capabilities/function_
 domainbench --help                    # Show main help
 domainbench capabilities              # List available capabilities
 domainbench compare <results...>      # Compare benchmark results
+domainbench viewer                    # Launch web-based result viewer
 domainbench version                   # Show version info
 ```
 
@@ -186,6 +213,9 @@ domainbench/
 ├── core/                  # Engine, config, evaluator
 ├── providers/             # LLM API adapters
 ├── domains/               # Domain definitions
+├── viewer/                # Web-based result viewer
+│   ├── app.py             # Flask application
+│   └── templates/         # HTML templates
 └── cli.py                 # Command line interface
 ```
 
@@ -236,6 +266,45 @@ domainbench compare results/run1.json results/run2.json
 domainbench compare results/*.json --format markdown -o comparison.md
 ```
 
+## Result Viewer (Web Interface)
+
+DomainBench includes a local web-based dashboard for visualizing benchmark results. Flask is included in the default installation.
+
+### Usage
+
+```bash
+# Launch the viewer (uses ./results directory by default)
+domainbench viewer
+
+# Specify custom results directory
+domainbench viewer -r /path/to/results
+
+# Custom host and port
+domainbench viewer --host 0.0.0.0 --port 8080
+```
+
+Then open **http://127.0.0.1:5000** in your browser.
+
+### Features
+
+- **Capability Selection**: Switch between Chat Completion, OCR, and Function Calling results
+- **Result File Browser**: View all benchmark results, sorted by date
+- **Interactive Charts**: Win/loss/tie distribution, model score comparisons
+- **Detailed Results**: Expandable test cases with responses, scores, and judge reasoning
+- **Color-coded Models**: Distinct colors (cyan/magenta) for easy model identification
+
+### Result File Naming
+
+The viewer detects capability by filename prefix:
+
+| Prefix | Capability |
+|--------|------------|
+| `chat_*` | Chat Completion |
+| `ocr_*` | OCR / Vision |
+| `func_*`, `function_*` | Function Calling |
+
+Place your result JSON files in the `results/` directory with the appropriate prefix.
+
 ## Development
 
 ### Running Tests
@@ -256,9 +325,9 @@ pytest tests/
 - [x] Chat completion benchmark
 - [x] Vision/OCR benchmark
 - [x] Function calling benchmark
+- [x] Web dashboard (Result Viewer)
 - [ ] Structured output benchmark
 - [ ] Code execution benchmark
-- [ ] Web dashboard
 - [ ] More built-in domains
 
 ## References

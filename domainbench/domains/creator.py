@@ -174,16 +174,18 @@ def create_domain_with_ai(
     provider: str = DEFAULT_CREATOR_PROVIDER,
     model: str = DEFAULT_CREATOR_MODEL,
     output_dir: Optional[Path] = None,
+    domain_name: Optional[str] = None,
 ) -> Tuple[Path, str]:
     """
     Use AI to create a new domain based on description.
-    
+
     Args:
         domain_description: Human description like "doctor assistant"
         provider: LLM provider to use (default: openai)
         model: Model to use (default: gpt-4o)
         output_dir: Where to save the domain (default: builtin domains)
-        
+        domain_name: Optional custom name for the domain folder (e.g., "doctor_assistant")
+
     Returns:
         Tuple of (domain_path, domain_slug)
     """
@@ -228,7 +230,12 @@ def create_domain_with_ai(
         raise ValueError("Failed to parse AI response. Expected both yaml and python code blocks.")
     
     # Determine output directory
-    domain_slug = get_domain_slug(domain_description)
+    if domain_name:
+        # Use provided name, sanitize it
+        domain_slug = get_domain_slug(domain_name)
+    else:
+        # Generate from description
+        domain_slug = get_domain_slug(domain_description)
     if output_dir is None:
         output_dir = BUILTIN_DOMAINS_DIR
     
