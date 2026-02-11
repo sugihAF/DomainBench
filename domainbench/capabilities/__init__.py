@@ -22,6 +22,7 @@ from domainbench.capabilities.function_calling import (
     validate_multi_turn,
     validate_agentic_response,
 )
+from domainbench.capabilities.voice import VoiceCapability
 
 
 def get_capability(name: str, **kwargs) -> BaseCapability:
@@ -44,6 +45,8 @@ def get_capability(name: str, **kwargs) -> BaseCapability:
         "function_calling": FunctionCallingCapability,
         "func_call": FunctionCallingCapability,  # Alias
         "tools": FunctionCallingCapability,  # Alias
+        "voice": VoiceCapability,
+        "voice_agent": VoiceCapability,  # Alias
     }
 
     capability_class = capability_map.get(name.lower())
@@ -59,6 +62,7 @@ def list_capabilities() -> list:
         {"name": "chat_completion", "description": "Multi-turn chat conversation benchmark"},
         {"name": "ocr", "description": "Vision-based structured data extraction benchmark (OCR)"},
         {"name": "function_calling", "description": "Function/tool calling accuracy benchmark"},
+        {"name": "voice", "description": "Multi-turn voice agent benchmark with tool use and knowledge grounding"},
     ]
 
 
@@ -81,4 +85,5 @@ __all__ = [
     "validate_multiple_calls",
     "validate_multi_turn",
     "validate_agentic_response",
+    "VoiceCapability",
 ]

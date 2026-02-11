@@ -1,0 +1,26 @@
+# =============================================================================
+# DomainBench Voice Pipeline — Text Mode (LLM Only)
+# =============================================================================
+#
+# The simplest pipeline: sends text turns directly to the LLM.
+# No audio processing — turn-taking dimension auto-passes.
+#
+# USAGE:
+#   domainbench voice run -d scenario.jsonl -m openai/gpt-4o
+#
+#   Or with this config file:
+#   domainbench voice run -d scenario.jsonl -p pipeline_text.yaml
+#
+# This is the DEFAULT mode when you use -m without -p.
+# You only need this file if you want to customize LLM parameters.
+#
+# =============================================================================
+
+type: text
+
+llm:
+  provider: openai
+  model: gpt-4o
+  api_key_env: OPENAI_API_KEY      # Environment variable name (not the key itself)
+  # temperature: 0.2                # Optional: defaults to 0.2
+  # max_tokens: 4096                # Optional: defaults to provider default

@@ -1,0 +1,84 @@
+# =============================================================================
+# DomainBench Voice Pipeline — Speech-to-Speech (End-to-End)
+# =============================================================================
+#
+# Single model handles the entire pipeline:
+#   Audio In -> [Model] -> Audio Out
+#
+# No separate STT or TTS — the model processes audio directly.
+# Latency is measured as voice-to-voice (user stops speaking -> model starts).
+#
+# USAGE:
+#   domainbench voice run -d scenario.jsonl -p pipeline_speech_to_speech.yaml
+#
+# REQUIREMENTS:
+#   - Audio files for each turn (WAV format) in the scenario
+#   - API key for the speech-to-speech provider
+#   - Optional dependencies: pip install domainbench[voice-audio]
+#
+# =============================================================================
+
+type: speech_to_speech
+
+model:
+  provider: openai
+  model: gpt-4o-audio-preview
+  api_key_env: OPENAI_API_KEY
+  voice: alloy
+  audio_format: wav
+
+# Input TTS: synthesizes user audio from text when no audio files are provided.
+# If omitted, defaults to OpenAI TTS.
+input_tts:
+  provider: openai
+  model: tts-1
+  voice: alloy
+
+
+# =============================================================================
+# SUPPORTED SPEECH-TO-SPEECH MODELS
+# =============================================================================
+#
+# --- OpenAI Realtime ---
+# model:
+#   provider: openai
+#   model: gpt-4o-realtime
+#   api_key_env: OPENAI_API_KEY
+#
+# --- Gemini Live ---
+# model:
+#   provider: gemini
+#   model: gemini-2.0-flash-live
+#   api_key_env: GEMINI_API_KEY
+#
+# --- Fixie Ultravox ---
+# model:
+#   provider: ultravox
+#   model: ultravox-0.7
+#   api_key_env: ULTRAVOX_API_KEY
+#
+# =============================================================================
+# COMPARING CASCADED vs SPEECH-TO-SPEECH
+# =============================================================================
+#
+# Run the same scenario with both pipeline types to compare:
+#
+#   # Text only (LLM ceiling)
+#   domainbench voice run -d scenario.jsonl -m openai/gpt-4o
+#
+#   # Cascaded pipeline
+#   domainbench voice run -d scenario.jsonl -p pipeline_cascaded.yaml
+#
+#   # Speech-to-speech
+#   domainbench voice run -d scenario.jsonl -p pipeline_speech_to_speech.yaml
+#
+#   # Compare all results
+#   domainbench voice compare results/voice_*.json
+#
+# All three produce the same 4-dimension scores, so results are
+# directly comparable. This reveals:
+#   - Does cascaded lose accuracy from STT errors?
+#   - Is speech-to-speech faster but less accurate on tool calls?
+#   - Is text-only the theoretical ceiling for content quality?
+#
+# =============================================================================
