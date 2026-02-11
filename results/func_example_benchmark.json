@@ -1,0 +1,122 @@
+{
+  "benchmark_id": "func-example-001",
+  "benchmark_name": "Weather API Example",
+  "timestamp": "2025-01-15T11:00:00Z",
+  "duration_seconds": 85.3,
+  "config": {
+    "domain": "weather_api",
+    "capabilities": ["function_calling"],
+    "models": [
+      {"provider": "openai", "model": "gpt-4o", "alias": "GPT-4o"},
+      {"provider": "gemini", "model": "gemini-2.0-flash", "alias": "Gemini 2.0"}
+    ]
+  },
+  "summary": {
+    "total_test_cases": 15,
+    "overall_winner": "GPT-4o",
+    "models": {
+      "GPT-4o": {
+        "total_wins": 12,
+        "total_ties": 2,
+        "total_losses": 1,
+        "avg_score": 93.3,
+        "by_capability": {
+          "function_calling": {
+            "wins": 12,
+            "ties": 2,
+            "losses": 1,
+            "avg_score": 93.3
+          }
+        }
+      },
+      "Gemini 2.0": {
+        "total_wins": 1,
+        "total_ties": 2,
+        "total_losses": 12,
+        "avg_score": 73.3,
+        "by_capability": {
+          "function_calling": {
+            "wins": 1,
+            "ties": 2,
+            "losses": 12,
+            "avg_score": 73.3
+          }
+        }
+      }
+    },
+    "by_category": {
+      "simple": {
+        "GPT-4o": {"wins": 5, "ties": 0},
+        "Gemini 2.0": {"wins": 0, "ties": 0}
+      },
+      "parallel": {
+        "GPT-4o": {"wins": 3, "ties": 1},
+        "Gemini 2.0": {"wins": 0, "ties": 1}
+      },
+      "multiple": {
+        "GPT-4o": {"wins": 2, "ties": 1},
+        "Gemini 2.0": {"wins": 1, "ties": 1}
+      },
+      "multi_turn": {
+        "GPT-4o": {"wins": 2, "ties": 0},
+        "Gemini 2.0": {"wins": 0, "ties": 0}
+      }
+    }
+  },
+  "detailed_results": [
+    {
+      "test_id": "fc_001",
+      "category": "simple",
+      "capability": "function_calling",
+      "input": {
+        "id": "fc_001",
+        "category": "simple",
+        "query": "What's the weather like in New York?",
+        "ground_truth": "get_weather(location='New York')"
+      },
+      "responses": {
+        "GPT-4o": {
+          "response": "get_weather(location='New York')",
+          "latency_ms": 280,
+          "tokens": 12,
+          "score": 100
+        },
+        "Gemini 2.0": {
+          "response": "get_weather(city='New York')",
+          "latency_ms": 310,
+          "tokens": 12,
+          "score": 0
+        }
+      },
+      "winner": "A",
+      "judge_reasons": ["GPT-4o used the correct parameter name 'location'", "Gemini used incorrect parameter 'city'"]
+    },
+    {
+      "test_id": "fc_002",
+      "category": "parallel",
+      "capability": "function_calling",
+      "input": {
+        "id": "fc_002",
+        "category": "parallel",
+        "query": "Get weather for both Paris and London",
+        "ground_truth": "[get_weather(location='Paris'), get_weather(location='London')]"
+      },
+      "responses": {
+        "GPT-4o": {
+          "response": "[get_weather(location='Paris'), get_weather(location='London')]",
+          "latency_ms": 350,
+          "tokens": 24,
+          "score": 100
+        },
+        "Gemini 2.0": {
+          "response": "[get_weather(location='Paris'), get_weather(location='London')]",
+          "latency_ms": 380,
+          "tokens": 24,
+          "score": 100
+        }
+      },
+      "winner": "tie",
+      "judge_reasons": ["Both models correctly identified the need for parallel function calls"]
+    }
+  ]
+}

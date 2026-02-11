@@ -1,0 +1,110 @@
+{
+  "benchmark_id": "ocr-example-001",
+  "benchmark_name": "Menu Extraction Example",
+  "timestamp": "2025-01-15T11:30:00Z",
+  "duration_seconds": 95.7,
+  "config": {
+    "domain": "menu_extraction",
+    "capabilities": ["ocr"],
+    "models": [
+      {"provider": "openai", "model": "gpt-4o", "alias": "GPT-4o"},
+      {"provider": "anthropic", "model": "claude-3-5-sonnet", "alias": "Claude 3.5"}
+    ]
+  },
+  "summary": {
+    "total_test_cases": 8,
+    "overall_winner": "Claude 3.5",
+    "models": {
+      "GPT-4o": {
+        "total_wins": 3,
+        "total_ties": 1,
+        "total_losses": 4,
+        "avg_score": 87.5,
+        "by_capability": {
+          "ocr": {
+            "wins": 3,
+            "ties": 1,
+            "losses": 4,
+            "avg_score": 87.5
+          }
+        }
+      },
+      "Claude 3.5": {
+        "total_wins": 4,
+        "total_ties": 1,
+        "total_losses": 3,
+        "avg_score": 91.2,
+        "by_capability": {
+          "ocr": {
+            "wins": 4,
+            "ties": 1,
+            "losses": 3,
+            "avg_score": 91.2
+          }
+        }
+      }
+    },
+    "by_category": {
+      "menu": {
+        "GPT-4o": {"wins": 2, "ties": 0},
+        "Claude 3.5": {"wins": 2, "ties": 0}
+      },
+      "receipt": {
+        "GPT-4o": {"wins": 1, "ties": 1},
+        "Claude 3.5": {"wins": 2, "ties": 1}
+      }
+    }
+  },
+  "detailed_results": [
+    {
+      "test_id": "ocr_001",
+      "category": "menu",
+      "capability": "ocr",
+      "input": {
+        "id": "ocr_001",
+        "image_path": "menus/italian_menu.png"
+      },
+      "responses": {
+        "GPT-4o": {
+          "response": {"items": [{"name": "Margherita Pizza", "price": 14.99}, {"name": "Pasta Carbonara", "price": 16.50}]},
+          "latency_ms": 1200,
+          "tokens": 150,
+          "score": 92.5
+        },
+        "Claude 3.5": {
+          "response": {"items": [{"name": "Margherita Pizza", "price": 14.99}, {"name": "Pasta Carbonara", "price": 16.50}, {"name": "Tiramisu", "price": 8.99}]},
+          "latency_ms": 1350,
+          "tokens": 180,
+          "score": 98.0
+        }
+      },
+      "winner": "B",
+      "judge_reasons": ["Claude extracted an additional menu item that GPT-4o missed", "Both correctly identified prices"]
+    },
+    {
+      "test_id": "ocr_002",
+      "category": "receipt",
+      "capability": "ocr",
+      "input": {
+        "id": "ocr_002",
+        "image_path": "receipts/grocery_receipt.png"
+      },
+      "responses": {
+        "GPT-4o": {
+          "response": {"store": "FreshMart", "total": 47.82, "items": 12},
+          "latency_ms": 980,
+          "tokens": 120,
+          "score": 88.0
+        },
+        "Claude 3.5": {
+          "response": {"store": "FreshMart", "total": 47.82, "items": 12, "tax": 3.42},
+          "latency_ms": 1050,
+          "tokens": 135,
+          "score": 94.5
+        }
+      },
+      "winner": "B",
+      "judge_reasons": ["Claude extracted the tax field which was present in the receipt", "Both correctly identified the store name and total"]
+    }
+  ]
+}

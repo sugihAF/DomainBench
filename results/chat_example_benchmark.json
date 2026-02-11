@@ -1,0 +1,155 @@
+{
+  "benchmark_id": "example-001",
+  "benchmark_name": "Restaurant Waiter Example",
+  "timestamp": "2025-01-15T10:30:00Z",
+  "duration_seconds": 120.5,
+  "config": {
+    "domain": "restaurant_waiter",
+    "capabilities": ["chat_completion"],
+    "models": [
+      {"provider": "openai", "model": "gpt-4o", "alias": "GPT-4o"},
+      {"provider": "anthropic", "model": "claude-3-5-sonnet", "alias": "Claude 3.5"}
+    ]
+  },
+  "summary": {
+    "total_test_cases": 10,
+    "overall_winner": "GPT-4o",
+    "models": {
+      "GPT-4o": {
+        "total_wins": 5,
+        "total_ties": 3,
+        "total_losses": 2,
+        "avg_score": 8.2,
+        "by_capability": {
+          "chat_completion": {
+            "wins": 5,
+            "ties": 3,
+            "losses": 2,
+            "avg_score": 8.2
+          }
+        }
+      },
+      "Claude 3.5": {
+        "total_wins": 2,
+        "total_ties": 3,
+        "total_losses": 5,
+        "avg_score": 7.5,
+        "by_capability": {
+          "chat_completion": {
+            "wins": 2,
+            "ties": 3,
+            "losses": 5,
+            "avg_score": 7.5
+          }
+        }
+      }
+    },
+    "by_category": {
+      "greeting": {
+        "GPT-4o": {"wins": 2, "ties": 1},
+        "Claude 3.5": {"wins": 1, "ties": 1}
+      },
+      "order_taking": {
+        "GPT-4o": {"wins": 2, "ties": 1},
+        "Claude 3.5": {"wins": 0, "ties": 1}
+      },
+      "complaint_handling": {
+        "GPT-4o": {"wins": 1, "ties": 1},
+        "Claude 3.5": {"wins": 1, "ties": 1}
+      }
+    }
+  },
+  "detailed_results": [
+    {
+      "test_id": "test_001",
+      "category": "greeting",
+      "capability": "chat_completion",
+      "input": {
+        "id": "test_001",
+        "category": "greeting",
+        "turns": ["Hello! Table for 2 please."]
+      },
+      "responses": {
+        "GPT-4o": {
+          "response": "Welcome! I'd be happy to seat you. Do you have a reservation, or would you prefer a table by the window?",
+          "latency_ms": 450,
+          "tokens": 28,
+          "score": 8.5
+        },
+        "Claude 3.5": {
+          "response": "Good evening! Welcome to our restaurant. I'll get you seated right away. Please follow me to your table.",
+          "latency_ms": 520,
+          "tokens": 25,
+          "score": 7.8
+        }
+      },
+      "winner": "A",
+      "judge_reasons": [
+        "Model A offered more options to the customer (reservation check, window preference)",
+        "Model A showed better customer service by asking clarifying questions",
+        "Both models were polite and professional"
+      ]
+    },
+    {
+      "test_id": "test_002",
+      "category": "order_taking",
+      "capability": "chat_completion",
+      "input": {
+        "id": "test_002",
+        "category": "order_taking",
+        "turns": ["I'd like to order the salmon, but can you make it without the sauce?"]
+      },
+      "responses": {
+        "GPT-4o": {
+          "response": "Absolutely! I'll note that down - grilled salmon without the lemon butter sauce. Would you like any alternative seasoning or would you prefer it plain?",
+          "latency_ms": 380,
+          "tokens": 35,
+          "score": 9.0
+        },
+        "Claude 3.5": {
+          "response": "Of course! I can have the kitchen prepare the salmon without sauce. Is there anything else you'd like to modify?",
+          "latency_ms": 410,
+          "tokens": 26,
+          "score": 7.5
+        }
+      },
+      "winner": "A",
+      "judge_reasons": [
+        "Model A confirmed the specific sauce name showing menu knowledge",
+        "Model A offered an alternative (seasoning) proactively",
+        "Model A demonstrated better attention to detail"
+      ]
+    },
+    {
+      "test_id": "test_003",
+      "category": "complaint_handling",
+      "capability": "chat_completion",
+      "input": {
+        "id": "test_003",
+        "category": "complaint_handling",
+        "turns": ["This steak is overcooked. I asked for medium-rare."]
+      },
+      "responses": {
+        "GPT-4o": {
+          "response": "I sincerely apologize for this. Let me take this back immediately and have the kitchen prepare a new steak cooked to medium-rare. Can I offer you a complimentary appetizer while you wait?",
+          "latency_ms": 420,
+          "tokens": 42,
+          "score": 8.8
+        },
+        "Claude 3.5": {
+          "response": "I'm so sorry about that! That's completely unacceptable. I'll have a new steak prepared right away, cooked perfectly to medium-rare. Please accept my apologies.",
+          "latency_ms": 390,
+          "tokens": 38,
+          "score": 8.5
+        }
+      },
+      "winner": "tie",
+      "judge_reasons": [
+        "Both models apologized appropriately and offered to remake the dish",
+        "Model A offered a complimentary item which shows excellent service recovery",
+        "Model B's response was also professional and empathetic",
+        "Overall very close performance on this complaint scenario"
+      ]
+    }
+  ]
+}
