@@ -130,6 +130,7 @@ class VoiceTurnResult(BaseModel):
     stt_latency_ms: Optional[float] = None
     llm_latency_ms: Optional[float] = None
     tts_latency_ms: Optional[float] = None
+    audio_files: Optional[Dict[str, str]] = None  # Paths to saved audio files
 
 
 # ---------------------------------------------------------------------------

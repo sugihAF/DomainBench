@@ -1972,6 +1972,10 @@ def voice_run(
         help="Maximum number of scenarios to evaluate from the dataset.",
     ),
     verbose: bool = typer.Option(False, "-v", "--verbose", help="Print detailed progress."),
+    save_audio: bool = typer.Option(
+        False, "--save-audio",
+        help="Save intermediate audio files (TTS input, STT input, TTS response).",
+    ),
 ):
     """
     Run voice agent benchmark on a dataset.
@@ -2092,6 +2096,7 @@ def voice_run(
     tts_instance = None
     input_tts_instance = None
     s2s_instance = None
+    pipeline_components = {}  # tracks actual provider/model per stage
 
     if pipeline_config.type == "cascaded":
         # Initialize STT
@@ -2103,6 +2108,7 @@ def voice_run(
             if pipeline_config.stt.params:
                 stt_kwargs["params"] = pipeline_config.stt.params
             stt_instance = create_stt(pipeline_config.stt.provider, **stt_kwargs)
+            pipeline_components["stt"] = f"{pipeline_config.stt.provider}/{pipeline_config.stt.model}"
             console.print(f"  STT: {pipeline_config.stt.provider}/{pipeline_config.stt.model}")
         else:
             console.print("[red]Error: Cascaded pipeline requires 'stt' configuration.[/red]")
@@ -2119,6 +2125,7 @@ def voice_run(
             if pipeline_config.tts.params:
                 tts_kwargs["params"] = pipeline_config.tts.params
             tts_instance = create_tts(pipeline_config.tts.provider, **tts_kwargs)
+            pipeline_components["tts"] = f"{pipeline_config.tts.provider}/{pipeline_config.tts.model}"
             console.print(f"  TTS: {pipeline_config.tts.provider}/{pipeline_config.tts.model}")
 
         # Initialize input TTS (for synthesizing user audio from text)
@@ -2138,6 +2145,7 @@ def voice_run(
             input_tts_instance = tts_instance
 
         console.print(f"  Pipeline: [bold]cascaded[/bold] (STT -> LLM -> TTS)")
+        # LLM component comes from model configs (set below per model iteration)
 
     elif pipeline_config.type == "speech_to_speech":
         # Initialize S2S model
@@ -2153,6 +2161,7 @@ def voice_run(
             if hasattr(pipeline_config.model, "params") and pipeline_config.model.params:
                 s2s_kwargs["params"] = pipeline_config.model.params
             s2s_instance = create_s2s(pipeline_config.model.provider, **s2s_kwargs)
+            pipeline_components["s2s"] = f"{pipeline_config.model.provider}/{pipeline_config.model.model}"
             console.print(f"  S2S: {pipeline_config.model.provider}/{pipeline_config.model.model}")
         else:
             console.print("[red]Error: Speech-to-speech pipeline requires 'model' configuration.[/red]")
@@ -2196,12 +2205,24 @@ def voice_run(
     else:
         console.print(f"  Pipeline: [bold]text[/bold] (LLM only)")
 
+    # Audio directory setup
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_tag = "_vs_".join(mc.model for mc in model_configs)
+    audio_dir = None
+    if save_audio:
+        audio_dir = output_dir / "audio" / f"voice_{model_tag}_{timestamp}"
+        console.print(f"  Audio save: [bold]enabled[/bold] → {audio_dir}")
+
     # Run benchmark for each model
     all_model_results = {}
 
     for mc in model_configs:
         model_display = f"{mc.provider.value}/{mc.model}"
         console.print(f"\n[cyan]Model: {model_display}[/cyan]")
+
+        # Track LLM component for cascaded pipeline
+        if pipeline_config.type in ("cascaded", "text"):
+            pipeline_components["llm"] = model_display
 
         provider = get_provider(mc)
         judge = VoiceJudge(judge_provider, judge_model_name)
@@ -2214,6 +2235,8 @@ def voice_run(
             tts=tts_instance,
             input_tts=input_tts_instance,
             s2s=s2s_instance,
+            save_audio=save_audio,
+            audio_dir=audio_dir,
         )
 
         model_run_results = []
@@ -2317,8 +2340,6 @@ def voice_run(
 
     # Save results
     output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_tag = "_vs_".join(mc.model for mc in model_configs)
     result_path = output_dir / f"voice_{model_tag}_{timestamp}.json"
 
     full_results = {
@@ -2330,6 +2351,8 @@ def voice_run(
             "num_runs": num_runs,
             "pipeline_type": pipeline_config.type,
             "dataset": str(dataset),
+            "audio_dir": str(audio_dir) if audio_dir else None,
+            "pipeline_components": pipeline_components if pipeline_components else None,
         },
         "results": all_model_results,
     }

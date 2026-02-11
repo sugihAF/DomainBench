@@ -144,6 +144,8 @@ class VoiceEngine:
         tts=None,        # BaseTTS instance (for cascaded response TTS)
         input_tts=None,  # BaseTTS instance (for synthesizing user audio)
         s2s=None,        # BaseS2S instance (for speech-to-speech)
+        save_audio: bool = False,
+        audio_dir: Optional[Path] = None,
     ):
         self.provider = provider
         self.model = model
@@ -153,6 +155,36 @@ class VoiceEngine:
         self.tts = tts
         self.input_tts = input_tts
         self.s2s = s2s
+        self.save_audio = save_audio
+        self.audio_dir = audio_dir
+
+    # ------------------------------------------------------------------
+    # Audio persistence
+    # ------------------------------------------------------------------
+
+    def _save_audio(
+        self,
+        audio_data: Optional[bytes],
+        fmt: str,
+        scenario_id: str,
+        run_index: int,
+        turn_index: int,
+        stage: str,
+    ) -> Optional[str]:
+        """Write audio bytes to disk and return the path relative to audio_dir.
+
+        Returns None when saving is disabled or there is no data to write.
+        """
+        if not self.save_audio or not self.audio_dir or not audio_data:
+            return None
+
+        subdir = self.audio_dir / scenario_id / f"run_{run_index}"
+        subdir.mkdir(parents=True, exist_ok=True)
+
+        filename = f"turn_{turn_index}_{stage}.{fmt}"
+        filepath = subdir / filename
+        filepath.write_bytes(audio_data)
+        return str(filepath.relative_to(self.audio_dir))
 
     # ------------------------------------------------------------------
     # Public API
@@ -174,9 +206,9 @@ class VoiceEngine:
         if ptype == "text":
             turn_results = self._run_text(scenario, verbose)
         elif ptype == "cascaded":
-            turn_results = self._run_cascaded(scenario, verbose)
+            turn_results = self._run_cascaded(scenario, verbose, run_index=run_index)
         elif ptype == "speech_to_speech":
-            turn_results = self._run_s2s(scenario, verbose)
+            turn_results = self._run_s2s(scenario, verbose, run_index=run_index)
         else:
             raise ValueError(f"Unknown pipeline type: {ptype}")
 
@@ -278,7 +310,7 @@ class VoiceEngine:
     # ------------------------------------------------------------------
 
     def _run_cascaded(
-        self, scenario: VoiceScenario, verbose: bool
+        self, scenario: VoiceScenario, verbose: bool, run_index: int = 0,
     ) -> List[VoiceTurnResult]:
         """Cascaded pipeline: STT -> LLM -> TTS with real audio processing."""
         if not self.stt:
@@ -333,6 +365,11 @@ class VoiceEngine:
                 # Fall back to text input directly (skip STT)
                 audio_data = None
 
+            # Save input audio
+            input_tts_path = self._save_audio(
+                audio_data, audio_format, scenario.id, run_index, i, "input_tts",
+            )
+
             # --- Step 2: STT (transcribe) ---
             stt_latency = 0.0
             if audio_data is not None:
@@ -366,18 +403,35 @@ class VoiceEngine:
 
             # --- Step 4: TTS (synthesize response) ---
             tts_response_latency = 0.0
+            response_tts_path = None
             if self.tts and assistant_text:
                 if verbose:
                     print(f"    TTS synthesizing response...")
                 try:
                     resp_tts = self.tts.synthesize(assistant_text)
                     tts_response_latency = resp_tts.latency_ms
+                    response_tts_path = self._save_audio(
+                        resp_tts.audio_data, resp_tts.format,
+                        scenario.id, run_index, i, "response_tts",
+                    )
                 except Exception as e:
                     if verbose:
                         print(f"    [WARN] Response TTS failed: {e}")
 
             # Total pipeline latency = STT + LLM + TTS (excluding input synthesis)
             total_latency = stt_latency + llm_latency + tts_response_latency
+
+            # Build audio_files dict
+            audio_files = None
+            if self.save_audio:
+                af = {}
+                if input_tts_path:
+                    af["input_tts"] = input_tts_path
+                    af["stt_input"] = input_tts_path  # same audio sent to STT
+                if response_tts_path:
+                    af["response_tts"] = response_tts_path
+                if af:
+                    audio_files = af
 
             turn_result = VoiceTurnResult(
                 turn_index=i,
@@ -399,6 +453,7 @@ class VoiceEngine:
                     "completion_tokens": usage.get("completion_tokens", 0),
                     "total_tokens": usage.get("total_tokens", 0),
                 },
+                audio_files=audio_files,
             )
             turn_results.append(turn_result)
 
@@ -412,7 +467,7 @@ class VoiceEngine:
     # ------------------------------------------------------------------
 
     def _run_s2s(
-        self, scenario: VoiceScenario, verbose: bool
+        self, scenario: VoiceScenario, verbose: bool, run_index: int = 0,
     ) -> List[VoiceTurnResult]:
         """Speech-to-speech pipeline: end-to-end audio model."""
         if not self.s2s:
@@ -475,6 +530,11 @@ class VoiceEngine:
                 s2s_messages.append({"role": "user", "content": turn.input})
                 s2s_messages.append({"role": "assistant", "content": f"[Audio error: {e}]"})
                 continue
+
+            # Save input audio
+            input_tts_path = self._save_audio(
+                audio_data, audio_format, scenario.id, run_index, i, "input_tts",
+            )
 
             # --- Step 2: Send audio to S2S model ---
             if verbose:
@@ -580,6 +640,23 @@ class VoiceEngine:
                 "content": assistant_text,
             })
 
+            # Save S2S output audio
+            s2s_output_path = self._save_audio(
+                s2s_result.audio_data, s2s_result.audio_format,
+                scenario.id, run_index, i, "s2s_output",
+            )
+
+            # Build audio_files dict
+            audio_files = None
+            if self.save_audio:
+                af = {}
+                if input_tts_path:
+                    af["input_tts"] = input_tts_path
+                if s2s_output_path:
+                    af["s2s_output"] = s2s_output_path
+                if af:
+                    audio_files = af
+
             turn_result = VoiceTurnResult(
                 turn_index=i,
                 user_input=turn.input,
@@ -591,6 +668,7 @@ class VoiceEngine:
                 ttfb_ms=model_latency,
                 latency_ms=model_latency + input_synth_latency,
                 input_synthesis_latency_ms=input_synth_latency,
+                audio_files=audio_files,
             )
             turn_results.append(turn_result)
 

@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_from_directory, abort
 
 
 # Capability detection by filename prefix
@@ -16,6 +16,7 @@ CAPABILITY_PREFIXES = {
     "chat_completion": ["chat_", "chat-", "chatcompletion", "chat_completion"],
     "ocr": ["ocr_", "ocr-", "ocr"],
     "function_calling": ["func_", "func-", "function_", "function-", "funccall", "func_call"],
+    "voice": ["voice_", "voice-", "voice"],
 }
 
 
@@ -77,7 +78,7 @@ def create_app(results_dir: Optional[str] = None) -> Flask:
 
         # Return in consistent order
         ordered = []
-        for cap in ["chat_completion", "ocr", "function_calling"]:
+        for cap in ["chat_completion", "ocr", "function_calling", "voice"]:
             if cap in found_capabilities:
                 ordered.append(cap)
 
@@ -100,15 +101,32 @@ def create_app(results_dir: Optional[str] = None) -> Flask:
             try:
                 with open(f, "r", encoding="utf-8") as file:
                     data = json.load(file)
-                    # Extract summary info for preview
-                    summary = {
-                        "filename": f.name,
-                        "path": str(f),
-                        "benchmark_name": data.get("benchmark_name", f.stem),
-                        "timestamp": data.get("timestamp", "Unknown"),
-                        "total_test_cases": data.get("summary", {}).get("total_test_cases", 0),
-                        "models": list(data.get("summary", {}).get("models", {}).keys()),
-                    }
+
+                    # Voice results use a different structure
+                    if capability == "voice":
+                        models_list = data.get("config", {}).get("models", [])
+                        total_runs = sum(
+                            len(m.get("runs", []))
+                            for m in data.get("results", {}).values()
+                        )
+                        summary = {
+                            "filename": f.name,
+                            "path": str(f),
+                            "benchmark_name": data.get("config", {}).get("dataset", f.stem),
+                            "timestamp": data.get("timestamp", "Unknown"),
+                            "total_test_cases": total_runs,
+                            "models": models_list,
+                        }
+                    else:
+                        # Extract summary info for preview
+                        summary = {
+                            "filename": f.name,
+                            "path": str(f),
+                            "benchmark_name": data.get("benchmark_name", f.stem),
+                            "timestamp": data.get("timestamp", "Unknown"),
+                            "total_test_cases": data.get("summary", {}).get("total_test_cases", 0),
+                            "models": list(data.get("summary", {}).get("models", {}).keys()),
+                        }
                     results.append(summary)
             except (json.JSONDecodeError, KeyError):
                 # Skip invalid files
@@ -135,6 +153,26 @@ def create_app(results_dir: Optional[str] = None) -> Flask:
             return jsonify(data)
         except json.JSONDecodeError:
             return jsonify({"error": "Invalid JSON file"}), 400
+
+    @app.route("/api/audio/<path:filepath>")
+    def serve_audio(filepath: str):
+        """Serve audio files from the audio subdirectory within results."""
+        # Audio files live under {results_dir}/audio/...
+        audio_base = Path(app.config["RESULTS_DIR"]) / "audio"
+        full_path = (audio_base / filepath).resolve()
+
+        # Security: ensure the resolved path is inside the audio directory
+        try:
+            full_path.relative_to(audio_base.resolve())
+        except ValueError:
+            abort(403)
+
+        if not full_path.is_file():
+            abort(404)
+
+        return send_from_directory(
+            str(full_path.parent), full_path.name,
+        )
 
     return app
 
