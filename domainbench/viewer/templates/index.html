@@ -2184,6 +2184,10 @@
             // Per-stage latency averages from turn_results
             let sttTotal = 0, llmTotal = 0, ttsTotal = 0, turnCount = 0;
             let ttfbTotal = 0, latTotal = 0;
+            let v2vTotal = 0, v2vCount = 0;
+            let silPadTotal = 0, silPadCount = 0;
+            let toolV2vTotal = 0, toolV2vCount = 0;
+            let nonToolV2vTotal = 0, nonToolV2vCount = 0;
             (runs || []).forEach(run => {
                 (run.turn_results || []).forEach(tr => {
                     if (tr.stt_latency_ms !== undefined) sttTotal += tr.stt_latency_ms;
@@ -2191,6 +2195,15 @@
                     if (tr.tts_latency_ms !== undefined) ttsTotal += tr.tts_latency_ms;
                     if (tr.ttfb_ms !== undefined) ttfbTotal += tr.ttfb_ms;
                     if (tr.latency_ms !== undefined) latTotal += tr.latency_ms;
+                    if (tr.v2v_ms !== undefined && tr.v2v_ms !== null) {
+                        v2vTotal += tr.v2v_ms; v2vCount++;
+                        const hasTool = tr.tool_calls && tr.tool_calls.length > 0;
+                        if (hasTool) { toolV2vTotal += tr.v2v_ms; toolV2vCount++; }
+                        else { nonToolV2vTotal += tr.v2v_ms; nonToolV2vCount++; }
+                    }
+                    if (tr.silence_pad_ms !== undefined && tr.silence_pad_ms !== null) {
+                        silPadTotal += tr.silence_pad_ms; silPadCount++;
+                    }
                     turnCount++;
                 });
             });
@@ -2205,6 +2218,12 @@
                 ttfbAvg: turnCount ? ttfbTotal / turnCount : 0,
                 latAvg: turnCount ? latTotal / turnCount : 0,
                 hasCascadedLatency,
+                v2vMean: v2vCount ? v2vTotal / v2vCount : 0,
+                silPadMean: silPadCount ? silPadTotal / silPadCount : 0,
+                toolV2vMean: toolV2vCount ? toolV2vTotal / toolV2vCount : 0,
+                nonToolV2vMean: nonToolV2vCount ? nonToolV2vTotal / nonToolV2vCount : 0,
+                hasV2v: v2vCount > 0,
+                hasSilPad: silPadCount > 0,
                 numScenarios: aggregated.length,
                 numRuns: runs ? runs.length : 0,
             };
@@ -2278,7 +2297,15 @@
                     <div class="voice-latency-stats">
                         <span class="voice-latency-stat">TTFB: <strong>${(summary.ttfbAvg / 1000).toFixed(2)}s</strong></span>
                         <span class="voice-latency-stat">Total: <strong>${(summary.latAvg / 1000).toFixed(2)}s</strong></span>
+                        ${summary.hasV2v ? `<span class="voice-latency-stat">V2V: <strong>${(summary.v2vMean / 1000).toFixed(2)}s</strong></span>` : ''}
+                        ${summary.hasSilPad ? `<span class="voice-latency-stat">Sil.Pad: <strong>${summary.silPadMean.toFixed(0)}ms</strong></span>` : ''}
                     </div>
+                    ${summary.hasV2v && (summary.toolV2vMean > 0 || summary.nonToolV2vMean > 0) ? `
+                    <div class="voice-latency-stats" style="margin-top: 4px;">
+                        ${summary.nonToolV2vMean > 0 ? `<span class="voice-latency-stat" style="font-size:11px;">Non-Tool V2V: <strong>${(summary.nonToolV2vMean / 1000).toFixed(2)}s</strong></span>` : ''}
+                        ${summary.toolV2vMean > 0 ? `<span class="voice-latency-stat" style="font-size:11px;">Tool V2V: <strong>${(summary.toolV2vMean / 1000).toFixed(2)}s</strong></span>` : ''}
+                    </div>
+                    ` : ''}
                 </div>
             `;
         }
@@ -2403,6 +2430,8 @@
             if (tr.llm_latency_ms !== undefined) latencyRow += `<span class="voice-turn-latency-item">${pc.llm || 'LLM'}: <strong>${(tr.llm_latency_ms/1000).toFixed(2)}s</strong></span>`;
             if (tr.tts_latency_ms !== undefined) latencyRow += `<span class="voice-turn-latency-item">${pc.tts || 'TTS'}: <strong>${(tr.tts_latency_ms/1000).toFixed(2)}s</strong></span>`;
             latencyRow += `<span class="voice-turn-latency-item">Total: <strong>${((tr.latency_ms || 0)/1000).toFixed(2)}s</strong></span>`;
+            if (tr.v2v_ms !== undefined && tr.v2v_ms !== null) latencyRow += `<span class="voice-turn-latency-item" style="color:#a855f7">V2V: <strong>${(tr.v2v_ms/1000).toFixed(2)}s</strong></span>`;
+            if (tr.silence_pad_ms !== undefined && tr.silence_pad_ms !== null) latencyRow += `<span class="voice-turn-latency-item" style="color:#f97316">Sil.Pad: <strong>${tr.silence_pad_ms.toFixed(0)}ms</strong></span>`;
             if (tr.tokens) latencyRow += `<span class="voice-turn-latency-item">Tokens: <strong>${tr.tokens.total_tokens || 0}</strong></span>`;
             latencyRow += '</div>';
 

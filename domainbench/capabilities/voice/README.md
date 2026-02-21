@@ -77,6 +77,7 @@ Run the voice agent benchmark.
 | `--runs` | Number of repeated runs per scenario | `1` |
 | `-o, --output` | Output directory | `./results` |
 | `--max-scenarios` | Limit scenarios from dataset | All |
+| `--save-audio` | Save intermediate audio files to disk | Off |
 | `-v, --verbose` | Print detailed progress | Off |
 
 ### `domainbench voice generate`
@@ -305,6 +306,152 @@ When using `--runs N`, DomainBench reports:
 - Vague/general answers without errors → PASS
 - Wrong dates, times, locations, names → FAIL
 
+## Latency Metrics
+
+DomainBench tracks latency at multiple granularities, inspired by the [aiewf-eval](https://github.com/kwindla/aiewf-eval) methodology. These metrics are available for **cascaded** and **speech-to-speech** pipelines (text mode only reports LLM latency).
+
+### Per-Stage Latency
+
+For cascaded pipelines, each turn records individual stage timings:
+
+| Metric | Description |
+|---|---|
+| `stt_latency_ms` | Time for STT to transcribe user audio |
+| `llm_latency_ms` | Time for the LLM to generate a response |
+| `tts_latency_ms` | Time for TTS to synthesize response audio |
+| `input_synthesis_latency_ms` | Time to synthesize user input audio (not counted in pipeline latency) |
+
+For speech-to-speech pipelines, only `model_latency` and `input_synthesis_latency_ms` are recorded (the model handles everything end-to-end).
+
+### Aggregate Latency Statistics
+
+Across all turns in a run, DomainBench computes median, mean, p95, and max for:
+
+| Metric | Description |
+|---|---|
+| `ttfb_*_ms` | Time to first byte — how quickly the pipeline starts responding |
+| `latency_*_ms` | Total pipeline latency (STT + LLM + TTS, or model latency for S2S) |
+
+### Voice-to-Voice (V2V) Latency
+
+V2V measures the complete time from when the user finishes speaking to when the model's response audio actually begins — including any leading silence in the output audio. This is the metric users *feel* in a real conversation.
+
+```
+V2V = Pipeline Processing Time + Silence Padding
+```
+
+| Pipeline | V2V Formula |
+|---|---|
+| **Cascaded** | `stt_latency + llm_latency + tts_latency + silence_pad` |
+| **Speech-to-Speech** | `model_latency + silence_pad` |
+| **Text** | Not applicable (no audio) |
+
+Reported statistics:
+
+| Metric | Description |
+|---|---|
+| `v2v_median_ms` | Median V2V across all turns |
+| `v2v_mean_ms` | Mean V2V across all turns |
+| `v2v_p95_ms` | 95th percentile V2V |
+| `v2v_max_ms` | Maximum V2V observed |
+
+### Silence Padding
+
+Silence padding is the duration of leading silence in the model's response audio — the quiet gap before speech actually begins. TTS engines and S2S models often prepend a short silent buffer (typically 40-120ms) to their output. This "dead air" adds to perceived latency even though the response bytes have already arrived.
+
+DomainBench detects silence padding by analyzing the WAV response audio:
+1. Audio is divided into 10ms windows
+2. RMS energy is computed for each window
+3. The first window exceeding a normalized threshold (default 0.02) marks the start of speech
+4. Everything before that point is silence padding
+
+| Metric | Description |
+|---|---|
+| `silence_pad_median_ms` | Median silence padding across turns |
+| `silence_pad_mean_ms` | Mean silence padding across turns |
+| `silence_pad_p95_ms` | 95th percentile silence padding |
+| `silence_pad_max_ms` | Maximum silence padding observed |
+
+Silence padding is only measured on WAV audio. Non-WAV formats (mp3, ogg) return `null`.
+
+### Tool vs Non-Tool Latency Separation
+
+Turns that trigger tool calls typically have higher latency than simple conversational turns (the model must generate structured function arguments, wait for the tool response, then generate a follow-up). DomainBench separates latency statistics by whether a turn involved tool calls, matching the aiewf-eval approach:
+
+| Metric | Description |
+|---|---|
+| `non_tool_v2v_median_ms` | Median V2V for turns **without** tool calls |
+| `non_tool_v2v_max_ms` | Max V2V for non-tool turns |
+| `tool_v2v_mean_ms` | Mean V2V for turns **with** tool calls |
+| `tool_v2v_max_ms` | Max V2V for tool turns |
+| `non_tool_latency_mean_ms` | Mean total latency for non-tool turns |
+| `tool_latency_mean_ms` | Mean total latency for tool turns |
+
+This separation helps identify whether latency issues are specific to tool-calling turns or affect the entire pipeline.
+
+### Comparison with aiewf-eval
+
+| aiewf-eval Metric | DomainBench Equivalent |
+|---|---|
+| Non-Tool V2V Med | `non_tool_v2v_median_ms` |
+| Non-Tool V2V Max | `non_tool_v2v_max_ms` |
+| Tool V2V Mean | `tool_v2v_mean_ms` |
+| Silence Pad Mean | `silence_pad_mean_ms` |
+
+DomainBench additionally provides per-stage breakdown (STT/LLM/TTS latency), p95 percentiles, and per-turn granularity that aiewf-eval does not track.
+
+### CLI Output
+
+The results table includes V2V and Silence Pad columns for audio pipelines:
+
+```
+┌──────────────────┬───────────┬──────────┬─────────────┬───────────┬───────────┬──────────┬─────────┬──────┐
+│ Model            │ Pass Rate │ Tool Use │ Instruction │ KB Ground │ TTFB (med)│ V2V (med)│ Sil.Pad │ Runs │
+├──────────────────┼───────────┼──────────┼─────────────┼───────────┼───────────┼──────────┼─────────┼──────┤
+│ openai/gpt-4o    │ 88.5%     │ 76.0%    │ 80.0%       │ 98.0%     │ 3920ms    │ 4970ms   │ 50ms    │ 25   │
+└──────────────────┴───────────┴──────────┴─────────────┴───────────┴───────────┴──────────┴─────────┴──────┘
+```
+
+### Viewer Dashboard
+
+The web viewer (`domainbench viewer`) displays:
+- **Model card**: V2V mean, Silence Pad mean, Non-Tool V2V, Tool V2V
+- **Per-turn detail**: V2V and Silence Pad for each individual turn
+- **Pipeline Latency chart**: Stacked bar chart with per-stage breakdown and component names
+
+## Audio Persistence
+
+Use `--save-audio` to save intermediate audio files for debugging and auditing:
+
+```bash
+domainbench voice run -d scenario.jsonl -p cascaded_config.yaml --save-audio
+```
+
+Audio files are organized under `results/audio/`:
+
+```
+results/
+├── voice_gpt-4o-mini_20260211_161703.json
+└── audio/
+    └── voice_gpt-4o-mini_20260211_161703/
+        └── voice_hotel_concierge_001/
+            ├── run_0/
+            │   ├── turn_0_input_tts.wav
+            │   ├── turn_0_response_tts.wav
+            │   ├── turn_1_input_tts.wav
+            │   └── turn_1_response_tts.wav
+            └── run_1/
+                └── ...
+```
+
+| Audio File | Description |
+|---|---|
+| `turn_N_input_tts.wav` | Synthesized user input audio (sent to STT or S2S model) |
+| `turn_N_response_tts.wav` | Synthesized assistant response audio (cascaded pipeline) |
+| `turn_N_s2s_output.wav` | Raw S2S model output audio (speech-to-speech pipeline) |
+
+Saved audio is playable directly in the web viewer via inline audio players in the turn detail cards.
+
 ## Results Format
 
 ```json
@@ -315,7 +462,13 @@ When using `--runs N`, DomainBench reports:
     "models": ["openai/gpt-4o"],
     "judge": "openai/gpt-4o",
     "num_runs": 3,
-    "pipeline_type": "text"
+    "pipeline_type": "cascaded",
+    "audio_dir": "results/audio/voice_gpt-4o_20250615_143000",
+    "pipeline_components": {
+      "stt": "deepgram/nova-2",
+      "llm": "openai/gpt-4o",
+      "tts": "elevenlabs/eleven_flash_v2_5"
+    }
   },
   "results": {
     "openai/gpt-4o": {
@@ -332,11 +485,41 @@ When using `--runs N`, DomainBench reports:
           "turn_taking": 100.0
         },
         "latency": {
-          "ttfb_median_ms": 850
+          "ttfb_median_ms": 850,
+          "latency_median_ms": 1200,
+          "v2v_median_ms": 1250,
+          "silence_pad_mean_ms": 52.0,
+          "non_tool_v2v_median_ms": 1100,
+          "non_tool_v2v_max_ms": 1800,
+          "tool_v2v_mean_ms": 1600
         }
       }],
       "runs": [...]
     }
+  }
+}
+```
+
+Each turn result in `runs[].turn_results[]` includes per-turn values:
+
+```json
+{
+  "turn_index": 0,
+  "user_input": "Hi, what restaurants are available?",
+  "assistant_text": "We have three dining options...",
+  "golden_text": "We have three dining options...",
+  "tool_calls": [],
+  "stt_latency_ms": 320.5,
+  "llm_latency_ms": 850.2,
+  "tts_latency_ms": 280.1,
+  "latency_ms": 1450.8,
+  "ttfb_ms": 1170.7,
+  "silence_pad_ms": 48.0,
+  "v2v_ms": 1498.8,
+  "audio_files": {
+    "input_tts": "voice_hotel_concierge_001/run_0/turn_0_input_tts.wav",
+    "stt_input": "voice_hotel_concierge_001/run_0/turn_0_input_tts.wav",
+    "response_tts": "voice_hotel_concierge_001/run_0/turn_0_response_tts.wav"
   }
 }
 ```

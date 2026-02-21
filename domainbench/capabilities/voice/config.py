@@ -131,6 +131,9 @@ class VoiceTurnResult(BaseModel):
     llm_latency_ms: Optional[float] = None
     tts_latency_ms: Optional[float] = None
     audio_files: Optional[Dict[str, str]] = None  # Paths to saved audio files
+    # aiewf-eval style metrics
+    silence_pad_ms: Optional[float] = None  # Leading silence duration in response audio
+    v2v_ms: Optional[float] = None  # Voice-to-voice latency (pipeline + silence pad)
 
 
 # ---------------------------------------------------------------------------

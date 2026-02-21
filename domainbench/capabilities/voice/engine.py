@@ -12,7 +12,10 @@ to the judge/scorer for evaluation.
 
 import json
 import os
+import struct
 import time
+import wave
+from io import BytesIO
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -185,6 +188,89 @@ class VoiceEngine:
         filepath = subdir / filename
         filepath.write_bytes(audio_data)
         return str(filepath.relative_to(self.audio_dir))
+
+    # ------------------------------------------------------------------
+    # Silence padding detection
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _detect_silence_pad(
+        audio_data: Optional[bytes],
+        audio_format: str = "wav",
+        window_ms: float = 10.0,
+        threshold: float = 0.02,
+    ) -> Optional[float]:
+        """Detect leading silence duration in audio data (WAV only).
+
+        Reads PCM samples from a WAV file, divides into short windows,
+        computes RMS energy per window, and returns the duration (in ms)
+        before the first window that exceeds *threshold* (relative to
+        the maximum possible amplitude for the sample width).
+
+        Returns ``None`` when audio_data is None, empty, or not WAV.
+        """
+        if not audio_data or audio_format.lower() not in ("wav", "wave"):
+            return None
+
+        try:
+            with wave.open(BytesIO(audio_data), "rb") as wf:
+                n_channels = wf.getnchannels()
+                sample_width = wf.getsampwidth()  # bytes per sample
+                frame_rate = wf.getframerate()
+                n_frames = wf.getnframes()
+
+                if n_frames == 0 or frame_rate == 0:
+                    return 0.0
+
+                raw = wf.readframes(n_frames)
+        except Exception:
+            return None
+
+        # Determine struct format for unpacking samples
+        if sample_width == 1:
+            fmt_char = "b"  # signed 8-bit
+            max_val = 127.0
+        elif sample_width == 2:
+            fmt_char = "h"  # signed 16-bit
+            max_val = 32767.0
+        elif sample_width == 4:
+            fmt_char = "i"  # signed 32-bit
+            max_val = 2147483647.0
+        else:
+            return None
+
+        total_samples = len(raw) // sample_width
+        if total_samples == 0:
+            return 0.0
+
+        try:
+            samples = struct.unpack(f"<{total_samples}{fmt_char}", raw[:total_samples * sample_width])
+        except struct.error:
+            return None
+
+        # Convert to mono by averaging channels
+        if n_channels > 1:
+            mono = []
+            for i in range(0, len(samples), n_channels):
+                chunk = samples[i:i + n_channels]
+                mono.append(sum(chunk) / n_channels)
+            samples = mono
+
+        # Window size in samples
+        window_samples = max(1, int(frame_rate * window_ms / 1000.0))
+
+        # Scan windows for first one exceeding threshold
+        for start in range(0, len(samples), window_samples):
+            window = samples[start:start + window_samples]
+            if not window:
+                break
+            rms = (sum(s * s for s in window) / len(window)) ** 0.5
+            normalized_rms = rms / max_val
+            if normalized_rms > threshold:
+                return round(start / frame_rate * 1000.0, 1)
+
+        # Entire audio is silent
+        return round(len(samples) / frame_rate * 1000.0, 1)
 
     # ------------------------------------------------------------------
     # Public API
@@ -404,12 +490,16 @@ class VoiceEngine:
             # --- Step 4: TTS (synthesize response) ---
             tts_response_latency = 0.0
             response_tts_path = None
+            response_audio_data = None
+            response_audio_format = "wav"
             if self.tts and assistant_text:
                 if verbose:
                     print(f"    TTS synthesizing response...")
                 try:
                     resp_tts = self.tts.synthesize(assistant_text)
                     tts_response_latency = resp_tts.latency_ms
+                    response_audio_data = resp_tts.audio_data
+                    response_audio_format = resp_tts.format
                     response_tts_path = self._save_audio(
                         resp_tts.audio_data, resp_tts.format,
                         scenario.id, run_index, i, "response_tts",
@@ -420,6 +510,14 @@ class VoiceEngine:
 
             # Total pipeline latency = STT + LLM + TTS (excluding input synthesis)
             total_latency = stt_latency + llm_latency + tts_response_latency
+
+            # Silence padding detection on response audio
+            silence_pad = self._detect_silence_pad(
+                response_audio_data, response_audio_format,
+            )
+
+            # V2V = pipeline processing latency + silence padding
+            v2v = total_latency + (silence_pad or 0.0) if total_latency > 0 else None
 
             # Build audio_files dict
             audio_files = None
@@ -454,6 +552,8 @@ class VoiceEngine:
                     "total_tokens": usage.get("total_tokens", 0),
                 },
                 audio_files=audio_files,
+                silence_pad_ms=silence_pad,
+                v2v_ms=round(v2v, 1) if v2v is not None else None,
             )
             turn_results.append(turn_result)
 
@@ -646,6 +746,14 @@ class VoiceEngine:
                 scenario.id, run_index, i, "s2s_output",
             )
 
+            # Silence padding detection on S2S output audio
+            silence_pad = self._detect_silence_pad(
+                s2s_result.audio_data, s2s_result.audio_format,
+            )
+
+            # V2V = model processing latency + silence padding
+            v2v = model_latency + (silence_pad or 0.0) if model_latency > 0 else None
+
             # Build audio_files dict
             audio_files = None
             if self.save_audio:
@@ -669,6 +777,8 @@ class VoiceEngine:
                 latency_ms=model_latency + input_synth_latency,
                 input_synthesis_latency_ms=input_synth_latency,
                 audio_files=audio_files,
+                silence_pad_ms=silence_pad,
+                v2v_ms=round(v2v, 1) if v2v is not None else None,
             )
             turn_results.append(turn_result)
 

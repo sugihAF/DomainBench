@@ -77,11 +77,28 @@ def score_run(
     }
 
 
+def _compute_group_stats(
+    values: List[float], prefix: str
+) -> Dict[str, float]:
+    """Compute median/mean/p95/max for a list of values under a key prefix."""
+    if not values:
+        return {}
+    sorted_v = sorted(values)
+    p95_idx = min(int(len(sorted_v) * 0.95), len(sorted_v) - 1)
+    return {
+        f"{prefix}_median_ms": round(statistics.median(sorted_v), 1),
+        f"{prefix}_mean_ms": round(statistics.mean(sorted_v), 1),
+        f"{prefix}_p95_ms": round(sorted_v[p95_idx], 1),
+        f"{prefix}_max_ms": round(max(sorted_v), 1),
+    }
+
+
 def compute_latency_stats(turn_results: List[VoiceTurnResult]) -> Dict[str, float]:
     """
     Compute latency statistics across all turns in a run.
 
-    Returns median, p95, max, and mean TTFB/latency values.
+    Returns median, p95, max, and mean for TTFB, latency, V2V, and silence
+    padding — both overall and split by tool / non-tool turns.
     """
     ttfb_values = [
         tr.ttfb_ms for tr in turn_results if tr.ttfb_ms is not None
@@ -93,20 +110,44 @@ def compute_latency_stats(turn_results: List[VoiceTurnResult]) -> Dict[str, floa
     stats: Dict[str, float] = {}
 
     if ttfb_values:
-        sorted_ttfb = sorted(ttfb_values)
-        stats["ttfb_median_ms"] = round(statistics.median(sorted_ttfb), 1)
-        stats["ttfb_mean_ms"] = round(statistics.mean(sorted_ttfb), 1)
-        p95_idx = min(int(len(sorted_ttfb) * 0.95), len(sorted_ttfb) - 1)
-        stats["ttfb_p95_ms"] = round(sorted_ttfb[p95_idx], 1)
-        stats["ttfb_max_ms"] = round(max(sorted_ttfb), 1)
+        stats.update(_compute_group_stats(ttfb_values, "ttfb"))
 
     if latency_values:
-        sorted_lat = sorted(latency_values)
-        stats["latency_median_ms"] = round(statistics.median(sorted_lat), 1)
-        stats["latency_mean_ms"] = round(statistics.mean(sorted_lat), 1)
-        p95_idx = min(int(len(sorted_lat) * 0.95), len(sorted_lat) - 1)
-        stats["latency_p95_ms"] = round(sorted_lat[p95_idx], 1)
-        stats["latency_max_ms"] = round(max(sorted_lat), 1)
+        stats.update(_compute_group_stats(latency_values, "latency"))
+
+    # V2V (voice-to-voice) stats — overall
+    v2v_values = [tr.v2v_ms for tr in turn_results if tr.v2v_ms is not None]
+    if v2v_values:
+        stats.update(_compute_group_stats(v2v_values, "v2v"))
+
+    # Silence padding stats — overall
+    sp_values = [tr.silence_pad_ms for tr in turn_results if tr.silence_pad_ms is not None]
+    if sp_values:
+        stats.update(_compute_group_stats(sp_values, "silence_pad"))
+
+    # --- Tool vs Non-Tool split ---
+    tool_turns = [tr for tr in turn_results if tr.tool_calls]
+    non_tool_turns = [tr for tr in turn_results if not tr.tool_calls]
+
+    # Tool turn V2V
+    tool_v2v = [tr.v2v_ms for tr in tool_turns if tr.v2v_ms is not None]
+    if tool_v2v:
+        stats.update(_compute_group_stats(tool_v2v, "tool_v2v"))
+
+    # Non-tool turn V2V
+    non_tool_v2v = [tr.v2v_ms for tr in non_tool_turns if tr.v2v_ms is not None]
+    if non_tool_v2v:
+        stats.update(_compute_group_stats(non_tool_v2v, "non_tool_v2v"))
+
+    # Tool turn latency
+    tool_lat = [tr.latency_ms for tr in tool_turns if tr.latency_ms is not None]
+    if tool_lat:
+        stats.update(_compute_group_stats(tool_lat, "tool_latency"))
+
+    # Non-tool turn latency
+    non_tool_lat = [tr.latency_ms for tr in non_tool_turns if tr.latency_ms is not None]
+    if non_tool_lat:
+        stats.update(_compute_group_stats(non_tool_lat, "non_tool_latency"))
 
     return stats
 
@@ -135,20 +176,18 @@ def aggregate_runs(
         values = [r.dimension_scores.get(key, 0.0) for r in run_results]
         dimension_avgs[key] = round(statistics.mean(values), 1) if values else 0.0
 
-    # Aggregate latency
-    all_ttfb: List[float] = []
-    all_latency: List[float] = []
-    for r in run_results:
-        all_ttfb.append(r.latency_stats.get("ttfb_median_ms", 0.0))
-        all_latency.append(r.latency_stats.get("latency_median_ms", 0.0))
-
+    # Aggregate latency — collect median values from each run
+    latency_keys = [
+        "ttfb_median_ms", "latency_median_ms",
+        "v2v_median_ms", "silence_pad_mean_ms",
+        "tool_v2v_mean_ms", "non_tool_v2v_median_ms", "non_tool_v2v_max_ms",
+        "tool_latency_mean_ms", "non_tool_latency_mean_ms",
+    ]
     latency_agg: Dict[str, float] = {}
-    if any(v > 0 for v in all_ttfb):
-        latency_agg["ttfb_median_ms"] = round(statistics.median([v for v in all_ttfb if v > 0]), 1)
-    if any(v > 0 for v in all_latency):
-        latency_agg["latency_median_ms"] = round(
-            statistics.median([v for v in all_latency if v > 0]), 1
-        )
+    for key in latency_keys:
+        values = [r.latency_stats.get(key, 0.0) for r in run_results if r.latency_stats.get(key, 0.0) > 0]
+        if values:
+            latency_agg[key] = round(statistics.median(values), 1)
 
     return {
         "model_name": model_name,

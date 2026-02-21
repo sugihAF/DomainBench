@@ -2281,6 +2281,8 @@ def voice_run(
     table.add_column("Instruction", justify="right")
     table.add_column("KB Ground", justify="right")
     table.add_column("TTFB (med)", justify="right")
+    table.add_column("V2V (med)", justify="right")
+    table.add_column("Sil.Pad", justify="right")
     table.add_column("Runs", justify="right")
 
     def _avg_across_scenarios(agg_list):
@@ -2296,12 +2298,21 @@ def voice_run(
         for k in dim_keys:
             vals = [a.get("dimension_scores", {}).get(k, 0) for a in agg_list]
             dims_avg[k] = round(_st.mean(vals), 1)
-        ttfb_vals = [a.get("latency", {}).get("ttfb_median_ms", 0) for a in agg_list if a.get("latency", {}).get("ttfb_median_ms")]
+        # Aggregate all latency keys
+        latency_agg = {}
+        lat_keys = [
+            "ttfb_median_ms", "v2v_median_ms", "silence_pad_mean_ms",
+            "tool_v2v_mean_ms", "non_tool_v2v_median_ms", "non_tool_v2v_max_ms",
+        ]
+        for lk in lat_keys:
+            vals = [a.get("latency", {}).get(lk, 0) for a in agg_list if a.get("latency", {}).get(lk)]
+            if vals:
+                latency_agg[lk] = round(_st.mean(vals), 1)
         total_runs = sum(a.get("num_runs", 0) for a in agg_list)
         return {
             "pass_rate_median": round(_st.mean(rates), 1),
             "dimension_scores": dims_avg,
-            "latency": {"ttfb_median_ms": round(_st.mean(ttfb_vals), 1)} if ttfb_vals else {},
+            "latency": latency_agg,
             "num_runs": total_runs,
             "num_scenarios": len(agg_list),
         }
@@ -2319,6 +2330,8 @@ def voice_run(
                 f"{dims.get('instruction_following', 0):.1f}%",
                 f"{dims.get('kb_grounding', 0):.1f}%",
                 f"{lat.get('ttfb_median_ms', 0):.0f}ms" if lat.get('ttfb_median_ms') else "N/A",
+                f"{lat.get('v2v_median_ms', 0):.0f}ms" if lat.get('v2v_median_ms') else "N/A",
+                f"{lat.get('silence_pad_mean_ms', 0):.0f}ms" if lat.get('silence_pad_mean_ms') else "N/A",
                 str(summary.get("num_runs", 0)),
             )
 
