@@ -13,16 +13,21 @@ app = typer.Typer(
     help="""DomainBench - LLM Benchmarking Framework
 
 Organized by capability type:
-  chat      - Chat completion benchmarks
-  ocr       - OCR/Vision extraction benchmarks
-  func-call - Function calling benchmarks
+  chat      - Chat completion benchmarks (LLM-as-Judge)
+  ocr       - OCR/Vision extraction benchmarks (fuzzy matching)
+  func-call - Function calling benchmarks (AST validation)
+  voice     - Voice agent benchmarks (multi-turn, two-phase scoring)
+  viewer    - Launch web-based result visualization
 
 Supported Providers & Models:
-  OpenAI:     gpt-4o, gpt-4.1, gpt-5, gpt-5.2, o1, o3, o4-mini
+  OpenAI:     gpt-4o, gpt-4.1, gpt-5.2, gpt-5.2-chat-latest, gpt-5.2-codex, gpt-5.2-pro, o1, o3, o4-mini
   Gemini:     gemini-2.0-flash, gemini-2.5-pro/flash, gemini-3-pro-preview, gemini-3-flash-preview
   Anthropic:  claude-3-5-sonnet, claude-sonnet-4, claude-4.5-opus/sonnet/haiku
 
-Model format: provider/model (e.g., openai/gpt-5.2, gemini/gemini-3-flash-preview)
+Model format: provider/model (e.g., openai/gpt-5.2-chat-latest, gemini/gemini-3-flash-preview)
+
+Note: GPT-5.x and O-series models are reasoning models - temperature is automatically
+omitted. They support reasoning_effort and verbosity parameters.
 """,
     add_completion=False,
     invoke_without_command=True,
@@ -57,8 +62,9 @@ def main_callback(ctx: typer.Context):
         console.print(BANNER, style="bold cyan")
         console.print()
         console.print("  Welcome to [bold green]DomainBench[/bold green]!", justify="center")
-        console.print("  Thank you for using DomainBench - your comprehensive LLM benchmarking framework.", justify="center")
+        console.print("  Your comprehensive LLM benchmarking framework.", justify="center")
         console.print()
+        console.print("  Capabilities: [cyan]chat[/cyan] | [yellow]ocr[/yellow] | [magenta]func-call[/magenta] | [blue]voice[/blue] | [green]viewer[/green]", justify="center")
         console.print("  Get started with: [bold yellow]domainbench --help[/bold yellow]", justify="center")
         console.print()
 
@@ -82,8 +88,8 @@ Output:
   - Response quality scores and comparison metrics
 
 Examples:
-  domainbench chat run -d dataset.jsonl -m openai/gpt-5.2 -m gemini/gemini-3-flash-preview
-  domainbench chat run -d dataset.jsonl -m openai/gpt-4o -m anthropic/claude-4.5-sonnet
+  domainbench chat run -d dataset.jsonl -m openai/gpt-5.2-chat-latest -m gemini/gemini-3-flash-preview
+  domainbench chat run -d dataset.jsonl -m openai/gpt-5.2-codex -m anthropic/claude-4.5-sonnet
   domainbench chat generate -d restaurant_waiter -n 100 -o test_cases.jsonl
   domainbench chat create-domain "medical assistant" --provider openai
 """,
@@ -213,8 +219,8 @@ def chat_run(
     Run a chat completion benchmark comparing LLM models.
 
     Examples:
-        domainbench chat run -d dataset.jsonl -m openai/gpt-5.2 -m gemini/gemini-3-flash-preview
-        domainbench chat run -d dataset.jsonl -m openai/gpt-4o -m anthropic/claude-4.5-sonnet
+        domainbench chat run -d dataset.jsonl -m openai/gpt-5.2-chat-latest -m gemini/gemini-3-flash-preview
+        domainbench chat run -d dataset.jsonl -m openai/gpt-5.2-codex -m anthropic/claude-4.5-sonnet
     """
     from dotenv import load_dotenv
     load_dotenv()
@@ -374,7 +380,7 @@ def chat_create_domain(
             console.print(f"\n[bold green]Domain '{domain_slug}' is ready to use![/bold green]")
             console.print(f"\nNext steps:")
             console.print(f"  1. Generate test cases: [cyan]domainbench chat generate -d {domain_slug} -n 100 -o dataset.jsonl[/cyan]")
-            console.print(f"  2. Run benchmark: [cyan]domainbench chat run -d dataset.jsonl -m openai/gpt-5.2 -m gemini/gemini-3-flash-preview --domain {domain_slug}[/cyan]")
+            console.print(f"  2. Run benchmark: [cyan]domainbench chat run -d dataset.jsonl -m openai/gpt-5.2-chat-latest -m gemini/gemini-3-flash-preview --domain {domain_slug}[/cyan]")
         else:
             console.print(f"[yellow]⚠[/yellow] Validation warning: {error}")
             console.print(f"The domain was created but may need manual fixes at: {domain_path}")
@@ -505,7 +511,7 @@ def chat_convert(
 
         console.print(f"\n[green]✓ Converted {count} test cases to: {output_path}[/green]")
         console.print(f"\nNext steps:")
-        console.print(f"  Run benchmark: [cyan]domainbench chat run -d {output_path} -m openai/gpt-5.2 -m gemini/gemini-2.5-pro[/cyan]")
+        console.print(f"  Run benchmark: [cyan]domainbench chat run -d {output_path} -m openai/gpt-5.2-chat-latest -m gemini/gemini-3-flash-preview[/cyan]")
 
     except Exception as e:
         console.print(f"\n[red]Error converting file: {e}[/red]")
