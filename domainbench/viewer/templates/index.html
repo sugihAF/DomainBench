@@ -27,6 +27,8 @@
             --ocr-accent-dim: rgba(255, 176, 0, 0.15);
             --func-accent: #ff0080;
             --func-accent-dim: rgba(255, 0, 128, 0.15);
+            --voice-accent: #a855f7;
+            --voice-accent-dim: rgba(168, 85, 247, 0.15);
 
             /* Status colors */
             --win: #3fb950;
@@ -867,6 +869,379 @@
         ::-webkit-scrollbar-thumb:hover {
             background: var(--text-muted);
         }
+
+        /* Voice Agent specific styles */
+        .voice-model-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+        }
+
+        .voice-gauge-row {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            margin-bottom: 20px;
+        }
+
+        .voice-gauge {
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .voice-gauge::before {
+            content: '';
+            position: absolute;
+            width: 78px;
+            height: 78px;
+            background: var(--bg-card);
+            border-radius: 50%;
+        }
+
+        .voice-gauge-value {
+            position: relative;
+            z-index: 1;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 22px;
+            font-weight: 600;
+        }
+
+        .voice-gauge-meta {
+            flex: 1;
+        }
+
+        .voice-gauge-meta .model-name {
+            margin-bottom: 4px;
+        }
+
+        .voice-pipeline-badge {
+            display: inline-block;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: var(--accent-dim);
+            color: var(--accent);
+            margin-bottom: 8px;
+        }
+
+        .voice-dim-bars {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .voice-dim-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .voice-dim-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            min-width: 130px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .voice-dim-bar {
+            flex: 1;
+            height: 20px;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .voice-dim-fill {
+            height: 100%;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 8px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--bg-primary);
+            min-width: fit-content;
+            transition: width 0.5s ease;
+        }
+
+        .voice-dim-fill.green { background: var(--win); }
+        .voice-dim-fill.yellow { background: var(--tie); }
+        .voice-dim-fill.red { background: var(--loss); }
+
+        .voice-latency-breakdown {
+            display: flex;
+            height: 28px;
+            border-radius: 6px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+
+        .voice-latency-seg {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--bg-primary);
+            min-width: 30px;
+        }
+
+        .voice-latency-seg.stt { background: #f97316; }
+        .voice-latency-seg.llm { background: #a855f7; }
+        .voice-latency-seg.tts { background: #06b6d4; }
+
+        .voice-latency-legend {
+            display: flex;
+            gap: 16px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+
+        .voice-latency-legend span::before {
+            content: '';
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            margin-right: 4px;
+            vertical-align: middle;
+        }
+
+        .voice-latency-legend .leg-stt::before { background: #f97316; }
+        .voice-latency-legend .leg-llm::before { background: #a855f7; }
+        .voice-latency-legend .leg-tts::before { background: #06b6d4; }
+
+        .voice-latency-stats {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .voice-latency-stat {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .voice-latency-stat strong {
+            color: var(--text-primary);
+        }
+
+        /* Voice scenario table */
+        .voice-scenario-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            margin-bottom: 32px;
+        }
+
+        .voice-scenario-table th,
+        .voice-scenario-table td {
+            padding: 10px 14px;
+            text-align: center;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .voice-scenario-table th {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            background: var(--bg-secondary);
+        }
+
+        .voice-scenario-table td:first-child {
+            text-align: left;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .voice-scenario-table tr:hover td {
+            background: var(--bg-card-hover);
+        }
+
+        .voice-pass-cell {
+            font-family: 'IBM Plex Mono', monospace;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 4px;
+            display: inline-block;
+        }
+
+        /* Voice turn detail */
+        .voice-turn-card {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .voice-turn-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .voice-turn-num {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--accent);
+            background: var(--accent-dim);
+            padding: 3px 10px;
+            border-radius: 4px;
+        }
+
+        .voice-dim-badge {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 3px;
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+        }
+
+        .voice-dim-badge.pass {
+            background: rgba(63, 185, 80, 0.15);
+            color: var(--win);
+        }
+
+        .voice-dim-badge.fail {
+            background: rgba(248, 81, 73, 0.15);
+            color: var(--loss);
+        }
+
+        .voice-text-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .voice-text-block {
+            background: var(--bg-card);
+            border-radius: 6px;
+            padding: 12px;
+        }
+
+        .voice-text-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .voice-text-content {
+            font-size: 13px;
+            line-height: 1.5;
+            color: var(--text-primary);
+            white-space: pre-wrap;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .voice-tool-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .voice-tool-block {
+            background: var(--bg-card);
+            border-radius: 6px;
+            padding: 12px;
+            border-left: 3px solid var(--border);
+        }
+
+        .voice-tool-block.expected { border-left-color: var(--win); }
+        .voice-tool-block.actual { border-left-color: var(--accent); }
+
+        .voice-turn-latency {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            padding: 8px 0;
+            border-top: 1px solid var(--border);
+            margin-top: 8px;
+        }
+
+        .voice-turn-latency-item {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .voice-turn-latency-item strong {
+            color: var(--text-primary);
+        }
+
+        .voice-reasoning {
+            margin-top: 8px;
+            padding: 10px;
+            background: var(--bg-card);
+            border-radius: 6px;
+            border-left: 3px solid var(--accent);
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .voice-audio-section {
+            margin-top: 10px;
+            padding: 10px;
+            background: var(--bg-card);
+            border-radius: 6px;
+        }
+        .voice-audio-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+        .voice-audio-item:last-child {
+            margin-bottom: 0;
+        }
+        .voice-audio-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            color: var(--text-secondary);
+            min-width: 150px;
+        }
+        .voice-audio-item audio {
+            flex: 1;
+            max-width: 350px;
+        }
+
+        @media (max-width: 700px) {
+            .voice-text-grid,
+            .voice-tool-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -883,6 +1258,7 @@
                     <option value="chat_completion">Chat Completion</option>
                     <option value="ocr">OCR / Vision</option>
                     <option value="function_calling">Function Calling</option>
+                    <option value="voice">Voice Agent</option>
                 </select>
             </div>
 
@@ -920,7 +1296,8 @@
         const capabilityColors = {
             chat_completion: { accent: '#00d9ff', dim: 'rgba(0, 217, 255, 0.15)' },
             ocr: { accent: '#ffb000', dim: 'rgba(255, 176, 0, 0.15)' },
-            function_calling: { accent: '#ff0080', dim: 'rgba(255, 0, 128, 0.15)' }
+            function_calling: { accent: '#ff0080', dim: 'rgba(255, 0, 128, 0.15)' },
+            voice: { accent: '#a855f7', dim: 'rgba(168, 85, 247, 0.15)' }
         };
 
         // Update accent color
@@ -967,15 +1344,17 @@
                     return;
                 }
 
-                resultList.innerHTML = data.results.map(r => `
+                resultList.innerHTML = data.results.map(r => {
+                    const countLabel = capability === 'voice' ? 'runs' : 'tests';
+                    return `
                     <div class="result-item" data-filename="${r.filename}" onclick="loadResult('${capability}', '${r.filename}')">
                         <div class="result-item-name">${r.benchmark_name || r.filename}</div>
                         <div class="result-item-meta">
-                            <span>${r.total_test_cases} tests</span>
+                            <span>${r.total_test_cases} ${countLabel}</span>
                             <span>${r.models.length} models</span>
                         </div>
                     </div>
-                `).join('');
+                `}).join('');
             } catch (error) {
                 console.error('Failed to load results:', error);
                 resultList.innerHTML = '<div class="empty-state" style="padding: 20px;"><p>Failed to load results</p></div>';
@@ -1006,6 +1385,9 @@
                         break;
                     case 'function_calling':
                         renderFunctionCalling(data);
+                        break;
+                    case 'voice':
+                        renderVoice(data);
                         break;
                 }
             } catch (error) {
@@ -1781,6 +2163,621 @@
                     }
                 }
             });
+        }
+
+        // ===== Voice Agent Rendering =====
+
+        function computeModelSummary(aggregated, runs) {
+            if (!aggregated || aggregated.length === 0) return null;
+            // Average pass rate across scenarios
+            const passRates = aggregated.map(a => a.pass_rate_mean || 0);
+            const avgPassRate = passRates.reduce((s, v) => s + v, 0) / passRates.length;
+
+            // Average dimension scores
+            const dims = {};
+            const dimKeys = ['tool_use_correct', 'instruction_following', 'kb_grounding', 'turn_taking'];
+            dimKeys.forEach(k => {
+                const vals = aggregated.map(a => (a.dimension_scores || {})[k]).filter(v => v !== undefined);
+                dims[k] = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
+            });
+
+            // Per-stage latency averages from turn_results
+            let sttTotal = 0, llmTotal = 0, ttsTotal = 0, turnCount = 0;
+            let ttfbTotal = 0, latTotal = 0;
+            let v2vTotal = 0, v2vCount = 0;
+            let silPadTotal = 0, silPadCount = 0;
+            let toolV2vTotal = 0, toolV2vCount = 0;
+            let nonToolV2vTotal = 0, nonToolV2vCount = 0;
+            (runs || []).forEach(run => {
+                (run.turn_results || []).forEach(tr => {
+                    if (tr.stt_latency_ms !== undefined) sttTotal += tr.stt_latency_ms;
+                    if (tr.llm_latency_ms !== undefined) llmTotal += tr.llm_latency_ms;
+                    if (tr.tts_latency_ms !== undefined) ttsTotal += tr.tts_latency_ms;
+                    if (tr.ttfb_ms !== undefined) ttfbTotal += tr.ttfb_ms;
+                    if (tr.latency_ms !== undefined) latTotal += tr.latency_ms;
+                    if (tr.v2v_ms !== undefined && tr.v2v_ms !== null) {
+                        v2vTotal += tr.v2v_ms; v2vCount++;
+                        const hasTool = tr.tool_calls && tr.tool_calls.length > 0;
+                        if (hasTool) { toolV2vTotal += tr.v2v_ms; toolV2vCount++; }
+                        else { nonToolV2vTotal += tr.v2v_ms; nonToolV2vCount++; }
+                    }
+                    if (tr.silence_pad_ms !== undefined && tr.silence_pad_ms !== null) {
+                        silPadTotal += tr.silence_pad_ms; silPadCount++;
+                    }
+                    turnCount++;
+                });
+            });
+            const hasCascadedLatency = sttTotal > 0 || llmTotal > 0 || ttsTotal > 0;
+
+            return {
+                avgPassRate,
+                dims,
+                sttAvg: turnCount ? sttTotal / turnCount : 0,
+                llmAvg: turnCount ? llmTotal / turnCount : 0,
+                ttsAvg: turnCount ? ttsTotal / turnCount : 0,
+                ttfbAvg: turnCount ? ttfbTotal / turnCount : 0,
+                latAvg: turnCount ? latTotal / turnCount : 0,
+                hasCascadedLatency,
+                v2vMean: v2vCount ? v2vTotal / v2vCount : 0,
+                silPadMean: silPadCount ? silPadTotal / silPadCount : 0,
+                toolV2vMean: toolV2vCount ? toolV2vTotal / toolV2vCount : 0,
+                nonToolV2vMean: nonToolV2vCount ? nonToolV2vTotal / nonToolV2vCount : 0,
+                hasV2v: v2vCount > 0,
+                hasSilPad: silPadCount > 0,
+                numScenarios: aggregated.length,
+                numRuns: runs ? runs.length : 0,
+            };
+        }
+
+        function renderVoiceModelCard(modelName, summary, pipelineType, pipelineComponents) {
+            const passRate = summary.avgPassRate;
+            const passColor = passRate >= 80 ? 'var(--win)' : passRate >= 50 ? 'var(--tie)' : 'var(--loss)';
+
+            function dimColor(val) {
+                return val >= 80 ? 'green' : val >= 50 ? 'yellow' : 'red';
+            }
+
+            const dimLabels = {
+                tool_use_correct: 'Tool Use',
+                instruction_following: 'Instruction',
+                kb_grounding: 'KB Grounding',
+                turn_taking: 'Turn Taking'
+            };
+
+            let latencyBar = '';
+            if (summary.hasCascadedLatency) {
+                const total = summary.sttAvg + summary.llmAvg + summary.ttsAvg;
+                if (total > 0) {
+                    const pc = pipelineComponents || {};
+                    const sttPct = (summary.sttAvg / total * 100).toFixed(1);
+                    const llmPct = (summary.llmAvg / total * 100).toFixed(1);
+                    const ttsPct = (summary.ttsAvg / total * 100).toFixed(1);
+                    latencyBar = `
+                        <div style="font-family: 'IBM Plex Mono'; font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Pipeline Latency</div>
+                        <div class="voice-latency-breakdown">
+                            <div class="voice-latency-seg stt" style="width:${sttPct}%" title="${pc.stt || 'STT'}">${(summary.sttAvg/1000).toFixed(1)}s</div>
+                            <div class="voice-latency-seg llm" style="width:${llmPct}%" title="${pc.llm || 'LLM'}">${(summary.llmAvg/1000).toFixed(1)}s</div>
+                            <div class="voice-latency-seg tts" style="width:${ttsPct}%" title="${pc.tts || 'TTS'}">${(summary.ttsAvg/1000).toFixed(1)}s</div>
+                        </div>
+                        <div class="voice-latency-legend">
+                            <span class="leg-stt">${pc.stt || 'STT'}</span>
+                            <span class="leg-llm">${pc.llm || 'LLM'}</span>
+                            <span class="leg-tts">${pc.tts || 'TTS'}</span>
+                        </div>
+                    `;
+                }
+            }
+
+            return `
+                <div class="voice-model-card">
+                    <div class="voice-gauge-row">
+                        <div class="voice-gauge" style="background: conic-gradient(${passColor} ${passRate * 3.6}deg, var(--bg-secondary) 0)">
+                            <span class="voice-gauge-value" style="color: ${passColor}">${passRate.toFixed(0)}%</span>
+                        </div>
+                        <div class="voice-gauge-meta">
+                            <div class="model-name">${escapeHtml(modelName)}</div>
+                            <span class="voice-pipeline-badge">${escapeHtml(pipelineType || 'text')}</span>
+                            <div style="font-size: 12px; color: var(--text-secondary);">${summary.numScenarios} scenario${summary.numScenarios !== 1 ? 's' : ''} &middot; ${summary.numRuns} run${summary.numRuns !== 1 ? 's' : ''}</div>
+                        </div>
+                    </div>
+                    <div class="voice-dim-bars">
+                        ${Object.entries(dimLabels).map(([key, label]) => {
+                            const val = summary.dims[key] || 0;
+                            return `
+                                <div class="voice-dim-row">
+                                    <span class="voice-dim-label">${label}</span>
+                                    <div class="voice-dim-bar">
+                                        <div class="voice-dim-fill ${dimColor(val)}" style="width: ${val}%">${val.toFixed(0)}%</div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                    ${latencyBar}
+                    <div class="voice-latency-stats">
+                        <span class="voice-latency-stat">TTFB: <strong>${(summary.ttfbAvg / 1000).toFixed(2)}s</strong></span>
+                        <span class="voice-latency-stat">Total: <strong>${(summary.latAvg / 1000).toFixed(2)}s</strong></span>
+                        ${summary.hasV2v ? `<span class="voice-latency-stat">V2V: <strong>${(summary.v2vMean / 1000).toFixed(2)}s</strong></span>` : ''}
+                        ${summary.hasSilPad ? `<span class="voice-latency-stat">Sil.Pad: <strong>${summary.silPadMean.toFixed(0)}ms</strong></span>` : ''}
+                    </div>
+                    ${summary.hasV2v && (summary.toolV2vMean > 0 || summary.nonToolV2vMean > 0) ? `
+                    <div class="voice-latency-stats" style="margin-top: 4px;">
+                        ${summary.nonToolV2vMean > 0 ? `<span class="voice-latency-stat" style="font-size:11px;">Non-Tool V2V: <strong>${(summary.nonToolV2vMean / 1000).toFixed(2)}s</strong></span>` : ''}
+                        ${summary.toolV2vMean > 0 ? `<span class="voice-latency-stat" style="font-size:11px;">Tool V2V: <strong>${(summary.toolV2vMean / 1000).toFixed(2)}s</strong></span>` : ''}
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        function renderVoiceScenarioTable(results, modelNames) {
+            // Collect all unique scenario IDs across models
+            const scenarioIds = new Set();
+            modelNames.forEach(m => {
+                (results[m]?.aggregated || []).forEach(a => scenarioIds.add(a.scenario_id));
+            });
+            if (scenarioIds.size <= 1) return '';
+
+            const scenarios = Array.from(scenarioIds);
+            return `
+                <div class="chart-card" style="margin-bottom: 32px;">
+                    <div class="chart-title">Pass Rate by Scenario</div>
+                    <table class="voice-scenario-table">
+                        <thead>
+                            <tr>
+                                <th style="text-align:left">Scenario</th>
+                                ${modelNames.map(m => `<th>${escapeHtml(m)}</th>`).join('')}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${scenarios.map(sid => `
+                                <tr>
+                                    <td>${escapeHtml(sid)}</td>
+                                    ${modelNames.map(m => {
+                                        const agg = (results[m]?.aggregated || []).find(a => a.scenario_id === sid);
+                                        const pr = agg ? agg.pass_rate_mean : 0;
+                                        const bg = pr >= 80 ? 'rgba(63,185,80,0.15)' : pr >= 50 ? 'rgba(240,183,47,0.15)' : 'rgba(248,81,73,0.15)';
+                                        const color = pr >= 80 ? 'var(--win)' : pr >= 50 ? 'var(--tie)' : 'var(--loss)';
+                                        return `<td><span class="voice-pass-cell" style="background:${bg};color:${color}">${pr.toFixed(1)}%</span></td>`;
+                                    }).join('')}
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function renderVoiceTurnDetail(tr, judgment, pipelineType, pipelineComponents, audioDirName) {
+            const j = judgment || {};
+            const dims = [
+                { key: 'turn_taking', label: 'Turn' },
+                { key: 'tool_use_correct', label: 'Tool' },
+                { key: 'instruction_following', label: 'Instr' },
+                { key: 'kb_grounding', label: 'KB' },
+            ];
+
+            const badges = dims.map(d => {
+                const val = j[d.key];
+                if (val === undefined || val === null) return '';
+                const cls = val ? 'pass' : 'fail';
+                const icon = val ? '&#10003;' : '&#10007;';
+                return `<span class="voice-dim-badge ${cls}">${icon} ${d.label}</span>`;
+            }).join('');
+
+            // Text comparison
+            let textGrid = '';
+            const hasTranscribed = tr.transcribed_input && pipelineType === 'cascaded';
+            if (hasTranscribed || tr.user_input) {
+                textGrid += '<div class="voice-text-grid">';
+                textGrid += `
+                    <div class="voice-text-block">
+                        <div class="voice-text-label">User Input</div>
+                        <div class="voice-text-content">${escapeHtml(tr.user_input || '')}</div>
+                    </div>
+                `;
+                if (hasTranscribed) {
+                    textGrid += `
+                        <div class="voice-text-block">
+                            <div class="voice-text-label">Transcribed (STT)</div>
+                            <div class="voice-text-content">${escapeHtml(tr.transcribed_input || '')}</div>
+                        </div>
+                    `;
+                }
+                textGrid += '</div>';
+            }
+
+            // Response comparison
+            let responseGrid = '';
+            if (tr.assistant_text || tr.golden_text) {
+                responseGrid = `
+                    <div class="voice-text-grid">
+                        <div class="voice-text-block">
+                            <div class="voice-text-label">Assistant Response</div>
+                            <div class="voice-text-content">${escapeHtml(tr.assistant_text || '(empty - tool call only)')}</div>
+                        </div>
+                        <div class="voice-text-block">
+                            <div class="voice-text-label">Golden Text</div>
+                            <div class="voice-text-content">${escapeHtml(tr.golden_text || '')}</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Tool call comparison
+            let toolGrid = '';
+            if (tr.expected_function_call || (tr.tool_calls && tr.tool_calls.length > 0)) {
+                const expected = tr.expected_function_call;
+                const actual = tr.tool_calls && tr.tool_calls.length > 0 ? tr.tool_calls[0] : null;
+                toolGrid = `
+                    <div class="voice-tool-grid">
+                        <div class="voice-tool-block expected">
+                            <div class="voice-text-label">Expected Tool Call</div>
+                            <div class="voice-text-content">${expected ? escapeHtml(expected.name + '(' + JSON.stringify(expected.args || {}, null, 2) + ')') : '<span style="color:var(--text-muted)">None</span>'}</div>
+                        </div>
+                        <div class="voice-tool-block actual">
+                            <div class="voice-text-label">Actual Tool Call</div>
+                            <div class="voice-text-content">${actual ? escapeHtml(actual.name + '(' + JSON.stringify(actual.arguments || {}, null, 2) + ')') : '<span style="color:var(--text-muted)">None</span>'}</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Per-turn latency row
+            const pc = pipelineComponents || {};
+            let latencyRow = '<div class="voice-turn-latency">';
+            if (tr.stt_latency_ms !== undefined) latencyRow += `<span class="voice-turn-latency-item">${pc.stt || 'STT'}: <strong>${(tr.stt_latency_ms/1000).toFixed(2)}s</strong></span>`;
+            if (tr.llm_latency_ms !== undefined) latencyRow += `<span class="voice-turn-latency-item">${pc.llm || 'LLM'}: <strong>${(tr.llm_latency_ms/1000).toFixed(2)}s</strong></span>`;
+            if (tr.tts_latency_ms !== undefined) latencyRow += `<span class="voice-turn-latency-item">${pc.tts || 'TTS'}: <strong>${(tr.tts_latency_ms/1000).toFixed(2)}s</strong></span>`;
+            latencyRow += `<span class="voice-turn-latency-item">Total: <strong>${((tr.latency_ms || 0)/1000).toFixed(2)}s</strong></span>`;
+            if (tr.v2v_ms !== undefined && tr.v2v_ms !== null) latencyRow += `<span class="voice-turn-latency-item" style="color:#a855f7">V2V: <strong>${(tr.v2v_ms/1000).toFixed(2)}s</strong></span>`;
+            if (tr.silence_pad_ms !== undefined && tr.silence_pad_ms !== null) latencyRow += `<span class="voice-turn-latency-item" style="color:#f97316">Sil.Pad: <strong>${tr.silence_pad_ms.toFixed(0)}ms</strong></span>`;
+            if (tr.tokens) latencyRow += `<span class="voice-turn-latency-item">Tokens: <strong>${tr.tokens.total_tokens || 0}</strong></span>`;
+            latencyRow += '</div>';
+
+            // Judge reasoning
+            let reasoning = '';
+            if (j.reasoning) {
+                reasoning = `<div class="voice-reasoning">${escapeHtml(j.reasoning)}</div>`;
+            }
+
+            // Audio players
+            let audioSection = '';
+            const af = tr.audio_files;
+            if (af && audioDirName) {
+                const audioLabels = {
+                    input_tts: 'Input Audio (TTS)',
+                    stt_input: null,  // skip — same file as input_tts
+                    response_tts: 'Response Audio (TTS)',
+                    s2s_output: 'Response Audio (S2S)',
+                };
+                const players = Object.entries(af)
+                    .filter(([key]) => audioLabels[key] !== null && audioLabels[key] !== undefined)
+                    .map(([key, relPath]) => {
+                        const url = '/api/audio/' + audioDirName + '/' + relPath.replace(/\\\\/g, '/').replace(/\\/g, '/');
+                        return `
+                            <div class="voice-audio-item">
+                                <span class="voice-audio-label">${audioLabels[key] || key}</span>
+                                <audio controls preload="none" src="${url}" style="height:32px;"></audio>
+                            </div>
+                        `;
+                    }).join('');
+                if (players) {
+                    audioSection = `
+                        <div class="voice-audio-section">
+                            <div style="font-family: 'IBM Plex Mono'; font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Recorded Audio</div>
+                            ${players}
+                        </div>
+                    `;
+                }
+            }
+
+            return `
+                <div class="voice-turn-card">
+                    <div class="voice-turn-header">
+                        <span class="voice-turn-num">Turn ${(tr.turn_index || 0) + 1}</span>
+                        ${badges}
+                    </div>
+                    ${textGrid}
+                    ${responseGrid}
+                    ${toolGrid}
+                    ${latencyRow}
+                    ${audioSection}
+                    ${reasoning}
+                </div>
+            `;
+        }
+
+        function renderVoiceRunsAccordion(modelName, modelData, pipelineType, pipelineComponents, audioDirName) {
+            const runs = modelData.runs || [];
+            if (runs.length === 0) return '';
+
+            return `
+                <div class="results-section">
+                    <h2 class="section-title">${escapeHtml(modelName)} — Run Details</h2>
+                    <div class="result-accordion">
+                        ${runs.map((run, ri) => {
+                            const passColor = run.pass_rate >= 80 ? 'var(--win)' : run.pass_rate >= 50 ? 'var(--tie)' : 'var(--loss)';
+                            const passBg = run.pass_rate >= 80 ? 'rgba(63,185,80,0.15)' : run.pass_rate >= 50 ? 'rgba(240,183,47,0.15)' : 'rgba(248,81,73,0.15)';
+                            const judgments = run.judgments || [];
+
+                            return `
+                                <div class="result-accordion-item" onclick="this.classList.toggle('open')">
+                                    <div class="result-accordion-header">
+                                        <div class="result-accordion-title">
+                                            <span class="result-id">${escapeHtml(run.scenario_id || 'Scenario')}</span>
+                                            <span class="result-category">Run ${run.run_index !== undefined ? run.run_index + 1 : ri + 1}</span>
+                                            <span style="font-family:'IBM Plex Mono';font-size:12px;font-weight:600;padding:3px 10px;border-radius:4px;background:${passBg};color:${passColor}">${(run.pass_rate || 0).toFixed(1)}%</span>
+                                        </div>
+                                        <span class="result-accordion-arrow">&#9660;</span>
+                                    </div>
+                                    <div class="result-accordion-content">
+                                        ${(run.turn_results || []).map((tr, ti) => {
+                                            const j = judgments.find(jj => jj.turn_index === tr.turn_index) || judgments[ti] || {};
+                                            return renderVoiceTurnDetail(tr, j, pipelineType, pipelineComponents, audioDirName);
+                                        }).join('')}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderVoiceRadarChart(summaries, modelNames) {
+            const ctx = document.getElementById('voiceRadarChart');
+            if (!ctx) return;
+            if (charts.voiceRadarChart) charts.voiceRadarChart.destroy();
+
+            const dimLabels = ['Tool Use', 'Instruction', 'KB Grounding', 'Turn Taking'];
+            const dimKeys = ['tool_use_correct', 'instruction_following', 'kb_grounding', 'turn_taking'];
+            const colors = ['#a855f7', '#06b6d4', '#f97316', '#3fb950'];
+
+            charts.voiceRadarChart = new Chart(ctx, {
+                type: 'radar',
+                data: {
+                    labels: dimLabels,
+                    datasets: modelNames.map((m, i) => ({
+                        label: m,
+                        data: dimKeys.map(k => summaries[m]?.dims[k] || 0),
+                        borderColor: colors[i % colors.length],
+                        backgroundColor: colors[i % colors.length] + '20',
+                        borderWidth: 2,
+                        pointRadius: 4,
+                        pointBackgroundColor: colors[i % colors.length],
+                    }))
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        r: {
+                            beginAtZero: true,
+                            max: 100,
+                            grid: { color: '#30363d' },
+                            angleLines: { color: '#30363d' },
+                            pointLabels: { color: '#8b949e', font: { family: 'IBM Plex Mono', size: 11 } },
+                            ticks: { display: false }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: '#8b949e', font: { family: 'IBM Plex Mono' } }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderVoiceLatencyChart(summaries, modelNames, pipelineComponents) {
+            const ctx = document.getElementById('voiceLatencyChart');
+            if (!ctx) return;
+            if (charts.voiceLatencyChart) charts.voiceLatencyChart.destroy();
+
+            const pc = pipelineComponents || {};
+            const sttLabel = pc.stt ? `STT (${pc.stt})` : 'STT';
+            const llmLabel = pc.llm ? `LLM (${pc.llm})` : 'LLM';
+            const ttsLabel = pc.tts ? `TTS (${pc.tts})` : 'TTS';
+
+            // Only show if at least one model has cascaded latency data
+            const hasCascaded = modelNames.some(m => summaries[m]?.hasCascadedLatency);
+
+            if (hasCascaded) {
+                charts.voiceLatencyChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: modelNames,
+                        datasets: [
+                            {
+                                label: sttLabel,
+                                data: modelNames.map(m => (summaries[m]?.sttAvg || 0) / 1000),
+                                backgroundColor: '#f97316',
+                                borderRadius: { topLeft: 0, topRight: 0 },
+                            },
+                            {
+                                label: llmLabel,
+                                data: modelNames.map(m => (summaries[m]?.llmAvg || 0) / 1000),
+                                backgroundColor: '#a855f7',
+                            },
+                            {
+                                label: ttsLabel,
+                                data: modelNames.map(m => (summaries[m]?.ttsAvg || 0) / 1000),
+                                backgroundColor: '#06b6d4',
+                                borderRadius: { topLeft: 4, topRight: 4 },
+                            },
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: { stacked: true, grid: { display: false }, ticks: { color: '#8b949e', font: { family: 'IBM Plex Mono' } } },
+                            y: { stacked: true, beginAtZero: true, grid: { color: '#30363d' }, ticks: { color: '#8b949e', callback: v => v + 's' } }
+                        },
+                        plugins: {
+                            legend: { position: 'bottom', labels: { color: '#8b949e', font: { family: 'IBM Plex Mono' } } },
+                            tooltip: {
+                                callbacks: {
+                                    title: (items) => items.length ? items[0].dataset.label : '',
+                                    label: (item) => `${(item.raw * 1000).toFixed(0)} ms`
+                                }
+                            }
+                        }
+                    }
+                });
+            } else {
+                // Fallback: show TTFB + Total latency per model
+                charts.voiceLatencyChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: modelNames,
+                        datasets: [
+                            {
+                                label: 'TTFB',
+                                data: modelNames.map(m => (summaries[m]?.ttfbAvg || 0) / 1000),
+                                backgroundColor: '#a855f7',
+                                borderRadius: 4,
+                            },
+                            {
+                                label: 'Total',
+                                data: modelNames.map(m => (summaries[m]?.latAvg || 0) / 1000),
+                                backgroundColor: '#06b6d4',
+                                borderRadius: 4,
+                            },
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: { grid: { display: false }, ticks: { color: '#8b949e', font: { family: 'IBM Plex Mono' } } },
+                            y: { beginAtZero: true, grid: { color: '#30363d' }, ticks: { color: '#8b949e', callback: v => v + 's' } }
+                        },
+                        plugins: {
+                            legend: { position: 'bottom', labels: { color: '#8b949e', font: { family: 'IBM Plex Mono' } } }
+                        }
+                    }
+                });
+            }
+        }
+
+        function renderVoiceDimensionBarsChart(summaries, modelNames) {
+            const ctx = document.getElementById('voiceDimChart');
+            if (!ctx || modelNames.length < 2) return;
+            if (charts.voiceDimChart) charts.voiceDimChart.destroy();
+
+            const dimLabels = ['Tool Use', 'Instruction', 'KB Grounding', 'Turn Taking'];
+            const dimKeys = ['tool_use_correct', 'instruction_following', 'kb_grounding', 'turn_taking'];
+            const colors = ['#a855f7', '#06b6d4', '#f97316', '#3fb950'];
+
+            charts.voiceDimChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: dimLabels,
+                    datasets: modelNames.map((m, i) => ({
+                        label: m,
+                        data: dimKeys.map(k => summaries[m]?.dims[k] || 0),
+                        backgroundColor: colors[i % colors.length],
+                        borderRadius: 4,
+                    }))
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#8b949e', font: { family: 'IBM Plex Mono', size: 10 } } },
+                        y: { beginAtZero: true, max: 100, grid: { color: '#30363d' }, ticks: { color: '#8b949e', callback: v => v + '%' } }
+                    },
+                    plugins: {
+                        legend: { position: 'bottom', labels: { color: '#8b949e', font: { family: 'IBM Plex Mono' } } }
+                    }
+                }
+            });
+        }
+
+        function renderVoice(data) {
+            const results = data.results || {};
+            const config = data.config || {};
+            const modelNames = config.models || Object.keys(results);
+            const pipelineType = config.pipeline_type || 'text';
+            const pipelineComponents = config.pipeline_components || {};
+            // Extract audio dir basename for building audio URLs
+            const rawAudioDir = config.audio_dir || '';
+            const audioDirName = rawAudioDir ? rawAudioDir.replace(/\\/g, '/').split('/').filter(Boolean).pop() : '';
+
+            // Compute summaries
+            const summaries = {};
+            modelNames.forEach(m => {
+                const md = results[m] || {};
+                summaries[m] = computeModelSummary(md.aggregated, md.runs);
+            });
+
+            // Total runs
+            const totalRuns = modelNames.reduce((s, m) => s + (results[m]?.runs?.length || 0), 0);
+
+            // Build charts section
+            const hasMultiModel = modelNames.length > 1;
+            let chartsHtml = `
+                <div class="charts-section">
+                    <div class="chart-card">
+                        <div class="chart-title">Dimension Balance (Radar)</div>
+                        <div class="chart-container">
+                            <canvas id="voiceRadarChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-title">Pipeline Latency</div>
+                        <div class="chart-container">
+                            <canvas id="voiceLatencyChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            if (hasMultiModel) {
+                chartsHtml += `
+                    <div class="charts-section">
+                        <div class="chart-card">
+                            <div class="chart-title">Dimension Comparison</div>
+                            <div class="chart-container">
+                                <canvas id="voiceDimChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            mainContent.innerHTML = `
+                <div class="dashboard-header">
+                    <h1 class="dashboard-title">Voice Agent Benchmark</h1>
+                    <div class="dashboard-meta">
+                        <span class="capability-badge">Voice Agent</span>
+                        <span>${totalRuns} run${totalRuns !== 1 ? 's' : ''}</span>
+                        <span>${modelNames.length} model${modelNames.length !== 1 ? 's' : ''}</span>
+                        <span style="text-transform:capitalize">${escapeHtml(pipelineType)} pipeline</span>
+                        <span>${data.timestamp || ''}</span>
+                    </div>
+                </div>
+
+                <div class="model-cards">
+                    ${modelNames.map(m => renderVoiceModelCard(m, summaries[m], pipelineType, pipelineComponents)).join('')}
+                </div>
+
+                ${chartsHtml}
+
+                ${renderVoiceScenarioTable(results, modelNames)}
+
+                ${modelNames.map(m => renderVoiceRunsAccordion(m, results[m] || {}, pipelineType, pipelineComponents, audioDirName)).join('')}
+            `;
+
+            // Render charts after DOM is ready
+            renderVoiceRadarChart(summaries, modelNames);
+            renderVoiceLatencyChart(summaries, modelNames, pipelineComponents);
+            if (hasMultiModel) {
+                renderVoiceDimensionBarsChart(summaries, modelNames);
+            }
         }
 
         // Utility: escape HTML

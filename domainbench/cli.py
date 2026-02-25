@@ -1886,10 +1886,648 @@ def viewer(
     run_viewer(results_dir=results_path, host=host, port=port, debug=debug)
 
 
+# ---------------------------------------------------------------------------
+# Voice benchmark sub-app
+# ---------------------------------------------------------------------------
+
+voice_app = typer.Typer(
+    name="voice",
+    help="""Voice agent benchmarks - Multi-turn evaluation with tool use
+
+What it does:
+  Evaluates LLMs as voice agents using multi-turn sequential conversations.
+  Based on the aiewf-eval benchmark methodology with LLM-as-Judge and
+  two-phase realignment scoring.
+
+  Scores each turn on 4 binary (pass/fail) dimensions:
+    - Tool use correctness
+    - Instruction following
+    - Knowledge base grounding
+    - Turn-taking (audio pipelines only)
+
+Evaluation modes:
+  - Single model: Absolute pass/fail scoring
+  - Pairwise: Compare two models on the same scenario
+  - Multi-model: Leaderboard across N models
+
+Pipeline types:
+  - Text: LLM only (default, no audio)
+  - Cascaded: STT -> LLM -> TTS (via pipeline config YAML)
+  - Speech-to-speech: End-to-end models (via pipeline config YAML)
+
+Examples:
+  domainbench voice run -d dataset.jsonl -m openai/gpt-4o
+  domainbench voice run -d dataset.jsonl -m openai/gpt-4o -m anthropic/claude-sonnet-4
+  domainbench voice run -d dataset.jsonl -m openai/gpt-4o --runs 5
+  domainbench voice generate -n "Hotel Concierge" -d "A luxury hotel assistant" -o scenario.jsonl
+  domainbench voice generate --builtin hotel_concierge -o scenario.jsonl
+  domainbench voice domains
+""",
+)
+
+
+def _default_api_key_env(provider: str) -> str:
+    """Map a provider name to its default API key environment variable."""
+    return {
+        "openai": "OPENAI_API_KEY",
+        "whisper": "OPENAI_API_KEY",
+        "deepgram": "DEEPGRAM_API_KEY",
+        "google": "GOOGLE_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "elevenlabs": "ELEVENLABS_API_KEY",
+        "cartesia": "CARTESIA_API_KEY",
+        "azure": "AZURE_API_KEY",
+    }.get(provider.lower(), f"{provider.upper()}_API_KEY")
+
+
+@voice_app.command("run")
+def voice_run(
+    dataset: Path = typer.Option(
+        ..., "-d", "--dataset",
+        help="Path to JSONL dataset with voice scenarios",
+    ),
+    models: Optional[List[str]] = typer.Option(
+        None, "-m", "--model",
+        help="Model(s) to evaluate (provider/model format). Can specify multiple.",
+    ),
+    pipeline: Optional[Path] = typer.Option(
+        None, "-p", "--pipeline",
+        help="Path to pipeline config YAML (for cascaded or speech-to-speech).",
+    ),
+    judge_model: str = typer.Option(
+        "openai/gpt-4o", "-j", "--judge",
+        help="Judge model for evaluation (provider/model format).",
+    ),
+    num_runs: int = typer.Option(
+        1, "--runs",
+        help="Number of repeated runs per scenario (for consistency measurement).",
+    ),
+    output_dir: Path = typer.Option(
+        Path("./results"), "-o", "--output",
+        help="Directory to save results.",
+    ),
+    max_scenarios: Optional[int] = typer.Option(
+        None, "--max-scenarios",
+        help="Maximum number of scenarios to evaluate from the dataset.",
+    ),
+    verbose: bool = typer.Option(False, "-v", "--verbose", help="Print detailed progress."),
+    save_audio: bool = typer.Option(
+        False, "--save-audio",
+        help="Save intermediate audio files (TTS input, STT input, TTS response).",
+    ),
+):
+    """
+    Run voice agent benchmark on a dataset.
+
+    Executes each scenario's multi-turn conversation sequentially, then
+    scores with LLM-as-Judge using two-phase realignment.
+
+    Examples:
+      domainbench voice run -d scenario.jsonl -m openai/gpt-4o
+      domainbench voice run -d scenario.jsonl -m openai/gpt-4o -m anthropic/claude-sonnet-4 --runs 3
+    """
+    import json as json_mod
+    from datetime import datetime
+    from dotenv import load_dotenv
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+    from rich.table import Table
+
+    load_dotenv()
+
+    from domainbench.providers import get_provider
+    from domainbench.core.config import ModelConfig, ProviderType
+    from domainbench.capabilities.voice.config import VoiceScenario, PipelineConfig
+    from domainbench.capabilities.voice.engine import VoiceEngine
+    from domainbench.capabilities.voice.judge import VoiceJudge
+    from domainbench.capabilities.voice.scorer import aggregate_runs
+
+    if not dataset.exists():
+        console.print(f"[red]Error: Dataset not found: {dataset}[/red]")
+        raise typer.Exit(1)
+
+    # Load pipeline config first (needed to validate model requirements)
+    pipeline_config = PipelineConfig(type="text")
+    if pipeline:
+        import yaml
+        with open(pipeline, "r", encoding="utf-8") as f:
+            pipeline_config = PipelineConfig(**yaml.safe_load(f))
+
+    # Parse model specs — for S2S pipeline, -m is optional (model comes from YAML)
+    # For cascaded, -m overrides the LLM in YAML; if not given, uses YAML llm config
+    model_configs = []
+    if models:
+        for spec in models:
+            if "/" not in spec:
+                console.print(f"[red]Error: Model must be 'provider/model', got: {spec}[/red]")
+                raise typer.Exit(1)
+            provider_str, model_name = spec.split("/", 1)
+            try:
+                ptype = ProviderType(provider_str.lower())
+            except ValueError:
+                console.print(f"[red]Error: Unknown provider '{provider_str}'. Use openai/anthropic/gemini.[/red]")
+                raise typer.Exit(1)
+            model_configs.append(ModelConfig(provider=ptype, model=model_name))
+    elif pipeline_config.type == "speech_to_speech":
+        # S2S: model comes from pipeline YAML, no -m needed
+        if not pipeline_config.model:
+            console.print("[red]Error: S2S pipeline YAML must have 'model' section.[/red]")
+            raise typer.Exit(1)
+        # Create a dummy model config for iteration (engine uses s2s_instance directly)
+        prov_str = pipeline_config.model.provider
+        try:
+            ptype = ProviderType(prov_str.lower())
+        except ValueError:
+            ptype = ProviderType.OPENAI  # fallback
+        model_configs.append(ModelConfig(provider=ptype, model=pipeline_config.model.model))
+    elif pipeline_config.type == "cascaded" and pipeline_config.llm:
+        # Cascaded: use LLM from YAML config
+        prov_str = pipeline_config.llm.provider
+        try:
+            ptype = ProviderType(prov_str.lower())
+        except ValueError:
+            console.print(f"[red]Error: Unknown LLM provider '{prov_str}' in pipeline YAML.[/red]")
+            raise typer.Exit(1)
+        model_configs.append(ModelConfig(
+            provider=ptype,
+            model=pipeline_config.llm.model,
+            api_key_env=pipeline_config.llm.api_key_env,
+        ))
+    else:
+        console.print("[red]Error: At least one model is required (-m provider/model)[/red]")
+        raise typer.Exit(1)
+
+    # Parse judge model
+    if "/" not in judge_model:
+        console.print(f"[red]Error: Judge model must be 'provider/model', got: {judge_model}[/red]")
+        raise typer.Exit(1)
+    judge_provider_str, judge_model_name = judge_model.split("/", 1)
+    try:
+        judge_ptype = ProviderType(judge_provider_str.lower())
+    except ValueError:
+        console.print(f"[red]Error: Unknown judge provider '{judge_provider_str}'.[/red]")
+        raise typer.Exit(1)
+    judge_provider = get_provider(ModelConfig(provider=judge_ptype, model=judge_model_name))
+
+    # Load scenarios from dataset
+    scenarios = []
+    with open(dataset, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                data = json_mod.loads(line)
+                scenarios.append(VoiceScenario(**data))
+    if max_scenarios:
+        scenarios = scenarios[:max_scenarios]
+
+    if not scenarios:
+        console.print("[red]Error: No scenarios found in dataset.[/red]")
+        raise typer.Exit(1)
+
+    console.print(f"\n[bold blue]DomainBench Voice Benchmark[/bold blue]")
+    console.print(f"Scenarios: {len(scenarios)} | Models: {len(model_configs)} | Runs: {num_runs}\n")
+
+    # Initialize pipeline services based on config type
+    from domainbench.capabilities.voice.stt import create_stt
+    from domainbench.capabilities.voice.tts import create_tts
+    from domainbench.capabilities.voice.s2s import create_s2s
+
+    stt_instance = None
+    tts_instance = None
+    input_tts_instance = None
+    s2s_instance = None
+    pipeline_components = {}  # tracks actual provider/model per stage
+
+    if pipeline_config.type == "cascaded":
+        # Initialize STT
+        if pipeline_config.stt:
+            stt_kwargs = {
+                "api_key_env": pipeline_config.stt.api_key_env or _default_api_key_env(pipeline_config.stt.provider),
+                "model": pipeline_config.stt.model,
+            }
+            if pipeline_config.stt.params:
+                stt_kwargs["params"] = pipeline_config.stt.params
+            stt_instance = create_stt(pipeline_config.stt.provider, **stt_kwargs)
+            pipeline_components["stt"] = f"{pipeline_config.stt.provider}/{pipeline_config.stt.model}"
+            console.print(f"  STT: {pipeline_config.stt.provider}/{pipeline_config.stt.model}")
+        else:
+            console.print("[red]Error: Cascaded pipeline requires 'stt' configuration.[/red]")
+            raise typer.Exit(1)
+
+        # Initialize response TTS
+        if pipeline_config.tts:
+            tts_kwargs = {
+                "api_key_env": pipeline_config.tts.api_key_env or _default_api_key_env(pipeline_config.tts.provider),
+                "model": pipeline_config.tts.model,
+            }
+            if pipeline_config.tts.voice_id:
+                tts_kwargs["voice_id"] = pipeline_config.tts.voice_id
+            if pipeline_config.tts.params:
+                tts_kwargs["params"] = pipeline_config.tts.params
+            tts_instance = create_tts(pipeline_config.tts.provider, **tts_kwargs)
+            pipeline_components["tts"] = f"{pipeline_config.tts.provider}/{pipeline_config.tts.model}"
+            console.print(f"  TTS: {pipeline_config.tts.provider}/{pipeline_config.tts.model}")
+
+        # Initialize input TTS (for synthesizing user audio from text)
+        if pipeline_config.input_tts:
+            it_cfg = pipeline_config.input_tts
+            input_tts_kwargs = {
+                "api_key_env": it_cfg.api_key_env or _default_api_key_env(it_cfg.provider),
+                "model": it_cfg.model,
+            }
+            if hasattr(it_cfg, "voice") and it_cfg.voice:
+                input_tts_kwargs["voice"] = it_cfg.voice
+            if it_cfg.params:
+                input_tts_kwargs["params"] = it_cfg.params
+            input_tts_instance = create_tts(it_cfg.provider, **input_tts_kwargs)
+        elif tts_instance:
+            # Fall back to response TTS for input synthesis
+            input_tts_instance = tts_instance
+
+        console.print(f"  Pipeline: [bold]cascaded[/bold] (STT -> LLM -> TTS)")
+        # LLM component comes from model configs (set below per model iteration)
+
+    elif pipeline_config.type == "speech_to_speech":
+        # Initialize S2S model
+        if pipeline_config.model:
+            s2s_kwargs = {
+                "api_key_env": pipeline_config.model.api_key_env or _default_api_key_env(pipeline_config.model.provider),
+                "model": pipeline_config.model.model,
+            }
+            if hasattr(pipeline_config.model, "voice") and pipeline_config.model.voice:
+                s2s_kwargs["voice"] = pipeline_config.model.voice
+            if hasattr(pipeline_config.model, "audio_format") and pipeline_config.model.audio_format:
+                s2s_kwargs["audio_format"] = pipeline_config.model.audio_format
+            if hasattr(pipeline_config.model, "params") and pipeline_config.model.params:
+                s2s_kwargs["params"] = pipeline_config.model.params
+            s2s_instance = create_s2s(pipeline_config.model.provider, **s2s_kwargs)
+            pipeline_components["s2s"] = f"{pipeline_config.model.provider}/{pipeline_config.model.model}"
+            console.print(f"  S2S: {pipeline_config.model.provider}/{pipeline_config.model.model}")
+        else:
+            console.print("[red]Error: Speech-to-speech pipeline requires 'model' configuration.[/red]")
+            raise typer.Exit(1)
+
+        # Initialize input TTS (for synthesizing user audio from text)
+        if pipeline_config.input_tts:
+            it_cfg = pipeline_config.input_tts
+            input_tts_kwargs = {
+                "api_key_env": it_cfg.api_key_env or _default_api_key_env(it_cfg.provider),
+                "model": it_cfg.model,
+            }
+            if hasattr(it_cfg, "voice") and it_cfg.voice:
+                input_tts_kwargs["voice"] = it_cfg.voice
+            if it_cfg.params:
+                input_tts_kwargs["params"] = it_cfg.params
+            input_tts_instance = create_tts(it_cfg.provider, **input_tts_kwargs)
+        elif pipeline_config.tts:
+            tts_kwargs = {
+                "api_key_env": pipeline_config.tts.api_key_env or _default_api_key_env(pipeline_config.tts.provider),
+                "model": pipeline_config.tts.model,
+            }
+            if pipeline_config.tts.voice_id:
+                tts_kwargs["voice_id"] = pipeline_config.tts.voice_id
+            if pipeline_config.tts.params:
+                tts_kwargs["params"] = pipeline_config.tts.params
+            input_tts_instance = create_tts(pipeline_config.tts.provider, **tts_kwargs)
+        else:
+            # Default to OpenAI TTS for input synthesis
+            try:
+                input_tts_instance = create_tts("openai", api_key_env="OPENAI_API_KEY")
+            except ValueError:
+                console.print(
+                    "[red]Error: S2S pipeline needs TTS for input audio. "
+                    "Configure 'input_tts' in YAML or set OPENAI_API_KEY.[/red]"
+                )
+                raise typer.Exit(1)
+
+        console.print(f"  Pipeline: [bold]speech_to_speech[/bold] (end-to-end)")
+
+    else:
+        console.print(f"  Pipeline: [bold]text[/bold] (LLM only)")
+
+    # Audio directory setup
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_tag = "_vs_".join(mc.model for mc in model_configs)
+    audio_dir = None
+    if save_audio:
+        audio_dir = output_dir / "audio" / f"voice_{model_tag}_{timestamp}"
+        console.print(f"  Audio save: [bold]enabled[/bold] → {audio_dir}")
+
+    # Run benchmark for each model
+    all_model_results = {}
+
+    for mc in model_configs:
+        model_display = f"{mc.provider.value}/{mc.model}"
+        console.print(f"\n[cyan]Model: {model_display}[/cyan]")
+
+        # Track LLM component for cascaded pipeline
+        if pipeline_config.type in ("cascaded", "text"):
+            pipeline_components["llm"] = model_display
+
+        provider = get_provider(mc)
+        judge = VoiceJudge(judge_provider, judge_model_name)
+        engine = VoiceEngine(
+            provider=provider,
+            model=mc.model,
+            judge=judge,
+            pipeline_config=pipeline_config,
+            stt=stt_instance,
+            tts=tts_instance,
+            input_tts=input_tts_instance,
+            s2s=s2s_instance,
+            save_audio=save_audio,
+            audio_dir=audio_dir,
+        )
+
+        model_run_results = []
+
+        with Progress(
+            SpinnerColumn("line", style="cyan"),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            console=console,
+            disable=verbose,
+        ) as progress:
+            total = len(scenarios) * num_runs
+            task = progress.add_task(f"Running {model_display}...", total=total)
+
+            for scenario in scenarios:
+                runs = engine.run_multiple(scenario, num_runs=num_runs, verbose=verbose)
+                model_run_results.extend(runs)
+                progress.update(task, advance=num_runs)
+
+        # Aggregate results per scenario
+        scenario_groups = {}
+        for rr in model_run_results:
+            scenario_groups.setdefault(rr.scenario_id, []).append(rr)
+
+        aggregated = []
+        for sid, group in scenario_groups.items():
+            agg = aggregate_runs(group)
+            aggregated.append(agg)
+
+        all_model_results[model_display] = {
+            "runs": [r.model_dump() for r in model_run_results],
+            "aggregated": aggregated,
+        }
+
+    # Print results table
+    console.print("\n[bold green]--- Results ---[/bold green]\n")
+    table = Table(title="Voice Benchmark Results")
+    table.add_column("Model", style="cyan")
+    table.add_column("Pass Rate", justify="right")
+    table.add_column("Tool Use", justify="right")
+    table.add_column("Instruction", justify="right")
+    table.add_column("KB Ground", justify="right")
+    table.add_column("TTFB (med)", justify="right")
+    table.add_column("V2V (med)", justify="right")
+    table.add_column("Sil.Pad", justify="right")
+    table.add_column("Runs", justify="right")
+
+    def _avg_across_scenarios(agg_list):
+        """Average metrics across multiple scenarios."""
+        if not agg_list:
+            return None
+        if len(agg_list) == 1:
+            return agg_list[0]
+        import statistics as _st
+        rates = [a.get("pass_rate_median", 0) for a in agg_list]
+        dim_keys = ["tool_use_correct", "instruction_following", "kb_grounding", "turn_taking"]
+        dims_avg = {}
+        for k in dim_keys:
+            vals = [a.get("dimension_scores", {}).get(k, 0) for a in agg_list]
+            dims_avg[k] = round(_st.mean(vals), 1)
+        # Aggregate all latency keys
+        latency_agg = {}
+        lat_keys = [
+            "ttfb_median_ms", "v2v_median_ms", "silence_pad_mean_ms",
+            "tool_v2v_mean_ms", "non_tool_v2v_median_ms", "non_tool_v2v_max_ms",
+        ]
+        for lk in lat_keys:
+            vals = [a.get("latency", {}).get(lk, 0) for a in agg_list if a.get("latency", {}).get(lk)]
+            if vals:
+                latency_agg[lk] = round(_st.mean(vals), 1)
+        total_runs = sum(a.get("num_runs", 0) for a in agg_list)
+        return {
+            "pass_rate_median": round(_st.mean(rates), 1),
+            "dimension_scores": dims_avg,
+            "latency": latency_agg,
+            "num_runs": total_runs,
+            "num_scenarios": len(agg_list),
+        }
+
+    for model_display, data in all_model_results.items():
+        agg_list = data["aggregated"]
+        summary = _avg_across_scenarios(agg_list)
+        if summary:
+            dims = summary.get("dimension_scores", {})
+            lat = summary.get("latency", {})
+            table.add_row(
+                model_display,
+                f"{summary.get('pass_rate_median', 0):.1f}%",
+                f"{dims.get('tool_use_correct', 0):.1f}%",
+                f"{dims.get('instruction_following', 0):.1f}%",
+                f"{dims.get('kb_grounding', 0):.1f}%",
+                f"{lat.get('ttfb_median_ms', 0):.0f}ms" if lat.get('ttfb_median_ms') else "N/A",
+                f"{lat.get('v2v_median_ms', 0):.0f}ms" if lat.get('v2v_median_ms') else "N/A",
+                f"{lat.get('silence_pad_mean_ms', 0):.0f}ms" if lat.get('silence_pad_mean_ms') else "N/A",
+                str(summary.get("num_runs", 0)),
+            )
+
+    console.print(table)
+
+    # Determine winner (if pairwise)
+    if len(model_configs) == 2:
+        names = list(all_model_results.keys())
+        s_a = _avg_across_scenarios(all_model_results[names[0]]["aggregated"])
+        s_b = _avg_across_scenarios(all_model_results[names[1]]["aggregated"])
+        rate_a = s_a.get("pass_rate_median", 0) if s_a else 0
+        rate_b = s_b.get("pass_rate_median", 0) if s_b else 0
+        if abs(rate_a - rate_b) < 2.0:
+            console.print(f"\n[bold yellow]Result: Tie ({names[0]} vs {names[1]})[/bold yellow]")
+        elif rate_a > rate_b:
+            console.print(f"\n[bold yellow]Winner: {names[0]}[/bold yellow]")
+        else:
+            console.print(f"\n[bold yellow]Winner: {names[1]}[/bold yellow]")
+
+    # Save results
+    output_dir.mkdir(parents=True, exist_ok=True)
+    result_path = output_dir / f"voice_{model_tag}_{timestamp}.json"
+
+    full_results = {
+        "benchmark_type": "voice",
+        "timestamp": datetime.now().isoformat(),
+        "config": {
+            "models": [f"{mc.provider.value}/{mc.model}" for mc in model_configs],
+            "judge": judge_model,
+            "num_runs": num_runs,
+            "pipeline_type": pipeline_config.type,
+            "dataset": str(dataset),
+            "audio_dir": str(audio_dir) if audio_dir else None,
+            "pipeline_components": pipeline_components if pipeline_components else None,
+        },
+        "results": all_model_results,
+    }
+
+    with open(result_path, "w", encoding="utf-8") as f:
+        json_mod.dump(full_results, f, indent=2, ensure_ascii=False, default=str)
+
+    console.print(f"\nResults saved to: [bold]{result_path}[/bold]")
+
+
+@voice_app.command("generate")
+def voice_generate(
+    domain_name: Optional[str] = typer.Option(
+        None, "-n", "--name",
+        help="Name for the custom domain (used with --description).",
+    ),
+    domain_description: Optional[str] = typer.Option(
+        None, "-d", "--description",
+        help="Description of the voice agent to generate a scenario for.",
+    ),
+    builtin: Optional[str] = typer.Option(
+        None, "--builtin", "-b",
+        help="Use a built-in domain template (e.g., 'hotel_concierge').",
+    ),
+    num_turns: int = typer.Option(
+        20, "--turns", "-t",
+        help="Target number of conversation turns.",
+    ),
+    num_scenarios: int = typer.Option(
+        1, "--scenarios",
+        help="Number of scenarios to generate.",
+    ),
+    generator_model: str = typer.Option(
+        "openai/gpt-4o", "--model", "-m",
+        help="Model to use for AI generation (provider/model format).",
+    ),
+    output: Path = typer.Option(
+        Path("./voice_dataset.jsonl"), "-o", "--output",
+        help="Output JSONL file path.",
+    ),
+    seed: int = typer.Option(42, "--seed", help="Random seed for built-in generators."),
+):
+    """
+    Generate voice agent evaluation scenarios.
+
+    Two modes:
+      1. Built-in template: --builtin hotel_concierge
+      2. AI-generated: --name "Domain Name" --description "what the agent does"
+
+    Examples:
+      domainbench voice generate --builtin hotel_concierge -o scenario.jsonl
+      domainbench voice generate -n "Tech Support" -d "IT helpdesk agent" -o tech.jsonl
+      domainbench voice generate -n "Clinic" -d "Medical receptionist" --turns 25 -o clinic.jsonl
+    """
+    import json as json_mod
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from domainbench.capabilities.voice.generator import (
+        generate_builtin_hotel,
+        generate_with_ai,
+    )
+
+    scenarios = []
+
+    if builtin:
+        # Built-in template generation
+        builtin_map = {
+            "hotel_concierge": generate_builtin_hotel,
+        }
+        gen_func = builtin_map.get(builtin.lower())
+        if gen_func is None:
+            console.print(f"[red]Error: Unknown built-in domain '{builtin}'. Available: {list(builtin_map.keys())}[/red]")
+            raise typer.Exit(1)
+
+        console.print(f"Generating built-in '{builtin}' scenario ({num_turns} turns)...")
+        for i in range(num_scenarios):
+            s = gen_func(
+                num_turns=num_turns,
+                seed=seed + i,
+                scenario_id=f"voice_{builtin}_{i + 1:03d}",
+            )
+            scenarios.append(s)
+
+    elif domain_name and domain_description:
+        # AI-powered generation
+        if "/" not in generator_model:
+            console.print(f"[red]Error: Model must be 'provider/model', got: {generator_model}[/red]")
+            raise typer.Exit(1)
+        prov_str, mod_name = generator_model.split("/", 1)
+
+        from domainbench.providers import get_provider
+        from domainbench.core.config import ModelConfig, ProviderType
+
+        try:
+            ptype = ProviderType(prov_str.lower())
+        except ValueError:
+            console.print(f"[red]Error: Unknown provider '{prov_str}'.[/red]")
+            raise typer.Exit(1)
+
+        provider = get_provider(ModelConfig(provider=ptype, model=mod_name))
+
+        for i in range(num_scenarios):
+            console.print(f"Generating scenario {i + 1}/{num_scenarios} via {generator_model}...")
+            s = generate_with_ai(
+                domain_name=domain_name,
+                domain_description=domain_description,
+                provider=provider,
+                model=mod_name,
+                num_turns=num_turns,
+                scenario_id=f"voice_{domain_name.lower().replace(' ', '_')}_{i + 1:03d}",
+            )
+            scenarios.append(s)
+            console.print(f"  Created: {s.id} ({len(s.turns)} turns, {len(s.tools)} tools)")
+    else:
+        console.print("[red]Error: Provide either --builtin or both --name and --description.[/red]")
+        raise typer.Exit(1)
+
+    # Save to JSONL
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with open(output, "w", encoding="utf-8") as f:
+        for s in scenarios:
+            f.write(json_mod.dumps(s.model_dump(), ensure_ascii=False) + "\n")
+
+    console.print(f"\n[bold green]Generated {len(scenarios)} scenario(s) -> {output}[/bold green]")
+    for s in scenarios:
+        tool_call_turns = sum(1 for t in s.turns if t.required_function_call)
+        console.print(f"  {s.id}: {len(s.turns)} turns, {tool_call_turns} tool calls, {len(s.tools)} tools")
+
+
+@voice_app.command("domains")
+def voice_domains():
+    """
+    List available built-in voice domains.
+
+    Shows pre-built scenario templates that can be used with
+    'domainbench voice generate --builtin <name>'.
+    """
+    from rich.table import Table
+
+    from domainbench.capabilities.voice.generator import list_builtin_domains
+
+    domains = list_builtin_domains()
+
+    table = Table(title="Built-in Voice Domains")
+    table.add_column("Name", style="cyan")
+    table.add_column("Description")
+    table.add_column("Turns", justify="right")
+    table.add_column("Tool Calls", justify="right")
+
+    for d in domains:
+        table.add_row(d["name"], d["description"], d["turns"], d["tool_calls"])
+
+    console.print(table)
+
+
 # Register sub-apps
 app.add_typer(chat_app, name="chat")
 app.add_typer(ocr_app, name="ocr")
 app.add_typer(func_call_app, name="func-call")
+app.add_typer(voice_app, name="voice")
 
 # Register nested sub-apps
 func_call_app.add_typer(func_call_domain_app, name="domain")

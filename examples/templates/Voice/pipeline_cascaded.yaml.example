@@ -1,0 +1,144 @@
+# =============================================================================
+# DomainBench Voice Pipeline — Cascaded (STT -> LLM -> TTS)
+# =============================================================================
+#
+# Full voice pipeline with separate services for each stage:
+#   Audio In -> [STT] -> Text -> [LLM] -> Text -> [TTS] -> Audio Out
+#
+# This lets you benchmark the complete voice agent stack and swap
+# individual components to isolate which one matters most.
+#
+# USAGE:
+#   domainbench voice run -d scenario.jsonl -p pipeline_cascaded.yaml
+#
+# REQUIREMENTS:
+#   - Audio files for each turn (WAV format) in the scenario
+#   - API keys for all three services
+#   - Optional dependencies: pip install domainbench[voice-audio]
+#
+# =============================================================================
+
+type: cascaded
+
+# ---------------------------------------------------------------------------
+# Speech-to-Text (STT)
+# ---------------------------------------------------------------------------
+# Transcribes user audio input into text for the LLM.
+#
+# Supported providers: deepgram, whisper, google, azure
+# The STT provider affects accuracy — poor transcription degrades LLM input.
+
+stt:
+  provider: deepgram
+  model: nova-2
+  api_key_env: DEEPGRAM_API_KEY
+  # params:                           # Provider-specific parameters
+  #   language: en
+  #   smart_format: true
+  #   endpointing: 300
+
+# ---------------------------------------------------------------------------
+# Language Model (LLM)
+# ---------------------------------------------------------------------------
+# The "brain" of the voice agent. Processes transcribed text, decides
+# when to call tools, and generates response text.
+
+llm:
+  provider: openai
+  model: gpt-4o-mini
+  api_key_env: OPENAI_API_KEY
+  # temperature: 0.2
+  # max_tokens: 1024
+
+# ---------------------------------------------------------------------------
+# Text-to-Speech (TTS)
+# ---------------------------------------------------------------------------
+# Converts the LLM's text response into spoken audio.
+#
+# Supported providers: elevenlabs, openai, google, azure, cartesia
+# TTS quality affects perceived agent quality but not content accuracy.
+
+tts:
+  provider: elevenlabs
+  model: eleven_flash_v2_5
+  api_key_env: ELEVENLABS_API_KEY
+  voice_id: FGY2WhTYpPnrIDTdsKH5       # ElevenLabs voice ID
+  params:
+    stability: 0.7
+    similarity_boost: 0.8
+    style: 0.5
+    use_speaker_boost: true
+    speed: 1.0
+    optimize_streaming_latency: 3        # 0-4, higher = faster but lower quality
+
+# ---------------------------------------------------------------------------
+# Input TTS (Optional)
+# ---------------------------------------------------------------------------
+# Synthesizes user audio from scenario text when no pre-recorded audio files
+# are provided. If omitted, the response TTS above is used.
+# Using a fast, cheap TTS for input is recommended to minimize benchmark cost.
+#
+# input_tts:
+#   provider: openai
+#   model: tts-1
+#   voice: alloy
+
+
+# =============================================================================
+# COMMON CONFIGURATIONS
+# =============================================================================
+#
+# --- Deepgram + GPT-4o + ElevenLabs (low latency, high quality) ---
+# stt:
+#   provider: deepgram
+#   model: nova-2
+# llm:
+#   provider: openai
+#   model: gpt-4o-mini
+# tts:
+#   provider: elevenlabs
+#   model: eleven_flash_v2_5
+#
+# --- Whisper + Claude + OpenAI TTS (high accuracy) ---
+# stt:
+#   provider: whisper
+#   model: whisper-1
+# llm:
+#   provider: anthropic
+#   model: claude-sonnet-4
+# tts:
+#   provider: openai
+#   model: tts-1
+#
+# --- Google end-to-end (single vendor) ---
+# stt:
+#   provider: google
+#   model: chirp
+# llm:
+#   provider: gemini
+#   model: gemini-2.5-flash
+# tts:
+#   provider: google
+#   model: journey
+#
+# =============================================================================
+# TIPS
+# =============================================================================
+#
+# 1. ISOLATE COMPONENTS
+#    Run the same scenario with different configs to find bottlenecks:
+#      - Swap STT only: Does transcription accuracy matter?
+#      - Swap LLM only: Which model is best for your domain?
+#      - Swap TTS only: Does voice quality affect perceived quality?
+#
+# 2. LATENCY BREAKDOWN
+#    The benchmark reports per-component latency:
+#      Total = STT latency + LLM TTFT + TTS generation time
+#    This helps identify which stage is the bottleneck.
+#
+# 3. TEXT MODE AS CEILING
+#    Run the same scenario in text mode (-m flag) to see the LLM's
+#    theoretical maximum. Any gap between text and cascaded scores
+#    is caused by STT transcription errors.
+#
+# =============================================================================
