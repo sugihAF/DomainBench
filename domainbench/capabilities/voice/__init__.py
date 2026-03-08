@@ -51,6 +51,7 @@ from domainbench.capabilities.voice.tts import (
 from domainbench.capabilities.voice.s2s import (
     BaseS2S,
     OpenAIS2S,
+    OpenAIRealtimeS2S,
     GeminiS2S,
     create_s2s,
 )
@@ -89,6 +90,7 @@ __all__ = [
     "create_tts",
     "BaseS2S",
     "OpenAIS2S",
+    "OpenAIRealtimeS2S",
     "GeminiS2S",
     "create_s2s",
 ]

@@ -6,6 +6,7 @@ from domainbench.providers.base import BaseProvider
 from domainbench.providers.openai_provider import OpenAIProvider
 from domainbench.providers.gemini_provider import GeminiProvider
 from domainbench.providers.anthropic_provider import AnthropicProvider
+from domainbench.providers.cerebras_provider import CerebrasProvider
 
 
 def get_provider(config) -> BaseProvider:
@@ -25,6 +26,7 @@ def get_provider(config) -> BaseProvider:
         ProviderType.OPENAI: OpenAIProvider,
         ProviderType.GEMINI: GeminiProvider,
         ProviderType.ANTHROPIC: AnthropicProvider,
+        ProviderType.CEREBRAS: CerebrasProvider,
     }
     
     provider_class = provider_map.get(config.provider)
@@ -36,8 +38,9 @@ def get_provider(config) -> BaseProvider:
 
 __all__ = [
     "BaseProvider",
-    "OpenAIProvider", 
+    "OpenAIProvider",
     "GeminiProvider",
     "AnthropicProvider",
+    "CerebrasProvider",
     "get_provider",
 ]

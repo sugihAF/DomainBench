@@ -23,8 +23,9 @@ Supported Providers & Models:
   OpenAI:     gpt-4o, gpt-4.1, gpt-5.2, gpt-5.2-chat-latest, gpt-5.2-codex, gpt-5.2-pro, o1, o3, o4-mini
   Gemini:     gemini-2.0-flash, gemini-2.5-pro/flash, gemini-3-pro-preview, gemini-3-flash-preview
   Anthropic:  claude-3-5-sonnet, claude-sonnet-4, claude-4.5-opus/sonnet/haiku
+  Cerebras:   llama3.1-8b, gpt-oss-120b, qwen-3-235b-a22b-instruct-2507, zai-glm-4.7
 
-Model format: provider/model (e.g., openai/gpt-5.2-chat-latest, gemini/gemini-3-flash-preview)
+Model format: provider/model (e.g., openai/gpt-5.2-chat-latest, cerebras/llama3.1-8b)
 
 Note: GPT-5.x and O-series models are reasoning models - temperature is automatically
 omitted. They support reasoning_effort and verbosity parameters.
@@ -1083,6 +1084,9 @@ def func_call_run(
     from domainbench.capabilities.function_calling.function_calling import (
         calculate_category_scores,
     )
+    from domainbench.capabilities.function_calling.checkers.utils import (
+        parse_tool_calls_from_response,
+    )
 
     # Validate model count
     if len(models) < 1 or len(models) > 2:
@@ -1316,6 +1320,16 @@ def func_call_run(
                 if eval_result["eval_B"].get("is_correct"):
                     model_metrics[model_b]["correct"] += 1
 
+                # Extract tool calls for detailed view
+                tool_calls_detail = {}
+                for mc in model_configs:
+                    mn = mc.display_name
+                    resp = responses[mn]
+                    if tc_category == "multi_turn" and isinstance(resp, list):
+                        tool_calls_detail[mn] = [parse_tool_calls_from_response(tr) for tr in resp]
+                    else:
+                        tool_calls_detail[mn] = parse_tool_calls_from_response(resp)
+
                 result = {
                     "test_id": case_id,
                     "category": tc_category,
@@ -1329,8 +1343,16 @@ def func_call_run(
                         model_a: eval_result["eval_A"].get("errors", []),
                         model_b: eval_result["eval_B"].get("errors", []),
                     },
+                    "tool_calls": tool_calls_detail,
                     "reasons": eval_result.get("reasons", []),
                 }
+
+                # Save expected calls / ground truth
+                if tc_category == "multi_turn":
+                    turns_data = test_case.get("turns", [])
+                    result["expected_calls"] = [t.get("expected_calls", []) for t in turns_data]
+                else:
+                    result["ground_truth"] = ground_truth
             else:
                 # Single model evaluation
                 model_name = model_configs[0].display_name
@@ -1344,13 +1366,28 @@ def func_call_run(
                 if eval_result.get("is_correct"):
                     model_metrics[model_name]["correct"] += 1
 
+                # Extract tool calls for detailed view
+                resp = responses[model_name]
+                if tc_category == "multi_turn" and isinstance(resp, list):
+                    single_tool_calls = [parse_tool_calls_from_response(tr) for tr in resp]
+                else:
+                    single_tool_calls = parse_tool_calls_from_response(resp)
+
                 result = {
                     "test_id": case_id,
                     "category": tc_category,
                     "is_correct": eval_result.get("is_correct", False),
                     "score": eval_result["score"],
                     "errors": eval_result.get("errors", []),
+                    "tool_calls": single_tool_calls,
                 }
+
+                # Save expected calls / ground truth
+                if tc_category == "multi_turn":
+                    turns_data = test_case.get("turns", [])
+                    result["expected_calls"] = [t.get("expected_calls", []) for t in turns_data]
+                else:
+                    result["ground_truth"] = ground_truth
 
             results.append(result)
             progress.update(task, advance=1)
@@ -1936,6 +1973,7 @@ def _default_api_key_env(provider: str) -> str:
     """Map a provider name to its default API key environment variable."""
     return {
         "openai": "OPENAI_API_KEY",
+        "openai_realtime": "OPENAI_API_KEY",
         "whisper": "OPENAI_API_KEY",
         "deepgram": "DEEPGRAM_API_KEY",
         "google": "GOOGLE_API_KEY",
@@ -2031,7 +2069,7 @@ def voice_run(
             try:
                 ptype = ProviderType(provider_str.lower())
             except ValueError:
-                console.print(f"[red]Error: Unknown provider '{provider_str}'. Use openai/anthropic/gemini.[/red]")
+                console.print(f"[red]Error: Unknown provider '{provider_str}'. Use openai/anthropic/gemini/cerebras.[/red]")
                 raise typer.Exit(1)
             model_configs.append(ModelConfig(provider=ptype, model=model_name))
     elif pipeline_config.type == "speech_to_speech":

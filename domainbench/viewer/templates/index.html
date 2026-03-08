@@ -1906,15 +1906,81 @@
             renderFuncWinChart(comparison, modelNames);
         }
 
-        function renderFuncDetailedResult(result, index, modelNames) {
-            // Support both new format (scores, is_correct, errors) and old format (responses)
-            const scores = result.scores || {};
-            const isCorrectMap = result.is_correct || {};
-            const errors = result.errors || {};
-            const reasons = result.reasons || [];
-            const responses = result.responses || {};
+        function renderFuncToolCalls(toolCalls, category) {
+            if (!toolCalls || (Array.isArray(toolCalls) && toolCalls.length === 0)) return '';
 
-            // Determine winner badge - use modelNames to get correct model name for A/B
+            const isMultiTurn = category === 'multi_turn' && Array.isArray(toolCalls) && toolCalls.length > 0 && Array.isArray(toolCalls[0]);
+
+            let html = '<div style="margin-top: 8px; padding: 10px; background: var(--bg-primary); border-radius: 6px; border-left: 3px solid var(--accent);">';
+            html += `<div style="font-size: 11px; font-weight: 500; color: var(--accent); margin-bottom: 6px; text-transform: uppercase; font-family: 'IBM Plex Mono', monospace;">Function Calls</div>`;
+
+            if (isMultiTurn) {
+                toolCalls.forEach((turnCalls, turnIdx) => {
+                    html += `<div style="font-size: 11px; color: var(--text-secondary); margin-top: ${turnIdx > 0 ? '8' : '0'}px; margin-bottom: 4px; font-family: 'IBM Plex Mono', monospace;">Turn ${turnIdx + 1}:</div>`;
+                    if (!turnCalls || turnCalls.length === 0) {
+                        html += '<div style="font-size: 12px; color: var(--text-muted); padding-left: 12px; font-style: italic;">No function calls</div>';
+                    } else {
+                        turnCalls.forEach(call => {
+                            html += renderSingleFuncCall(call);
+                        });
+                    }
+                });
+            } else {
+                toolCalls.forEach(call => {
+                    html += renderSingleFuncCall(call);
+                });
+            }
+
+            html += '</div>';
+            return html;
+        }
+
+        function renderSingleFuncCall(call) {
+            const args = Object.entries(call.arguments || {})
+                .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+                .join(', ');
+            return `<div style="font-size: 12px; font-family: 'IBM Plex Mono', monospace; padding: 3px 0 3px 12px; color: var(--text-primary);">` +
+                `<span style="color: var(--win);">${escapeHtml(call.name)}</span>` +
+                `(<span style="color: var(--tie);">${escapeHtml(args)}</span>)</div>`;
+        }
+
+        function renderFuncExpected(groundTruth, expectedCalls, category) {
+            if (!groundTruth && !expectedCalls) return '';
+
+            let html = '<div style="margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--text-secondary);">';
+            html += `<div style="font-size: 11px; font-weight: 500; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; font-family: 'IBM Plex Mono', monospace;">Expected Calls</div>`;
+
+            if (expectedCalls && category === 'multi_turn') {
+                expectedCalls.forEach((turnExpected, turnIdx) => {
+                    html += `<div style="font-size: 11px; color: var(--text-secondary); margin-top: ${turnIdx > 0 ? '6' : '0'}px; margin-bottom: 2px; font-family: 'IBM Plex Mono', monospace;">Turn ${turnIdx + 1}:</div>`;
+                    const calls = Array.isArray(turnExpected) ? turnExpected : [turnExpected];
+                    calls.forEach(c => {
+                        html += `<div style="font-size: 12px; font-family: 'IBM Plex Mono', monospace; padding: 2px 0 2px 12px; color: var(--text-primary);">${escapeHtml(String(c))}</div>`;
+                    });
+                });
+            } else if (groundTruth) {
+                const gts = Array.isArray(groundTruth) ? groundTruth : [groundTruth];
+                gts.forEach(gt => {
+                    html += `<div style="font-size: 12px; font-family: 'IBM Plex Mono', monospace; padding: 2px 0 2px 12px; color: var(--text-primary);">${escapeHtml(String(gt))}</div>`;
+                });
+            }
+
+            html += '</div>';
+            return html;
+        }
+
+        function renderFuncDetailedResult(result, index, modelNames) {
+            const scores = result.scores || {};
+            const reasons = result.reasons || [];
+            const toolCallsData = result.tool_calls || {};
+            const groundTruth = result.ground_truth;
+            const expectedCalls = result.expected_calls;
+            const category = result.category || 'general';
+
+            // Detect single-model format: is_correct is a boolean (not an object keyed by model)
+            const isSingleModel = typeof result.is_correct === 'boolean';
+
+            // Determine winner badge
             let winnerBadge = '';
             if (result.winner === 'tie') {
                 winnerBadge = '<span class="result-winner-badge tie">Tie</span>';
@@ -1925,36 +1991,56 @@
                 winnerBadge = `<span class="result-winner-badge ${badgeClass}">${winnerModel} wins</span>`;
             }
 
-            // Build model results using modelNames order to ensure correct A/B mapping
-            const modelResults = modelNames.map((model, idx) => {
-                // New format with scores
-                if (Object.keys(scores).length > 0) {
+            // Build model results
+            let modelResults;
+
+            if (isSingleModel) {
+                // Single model format: score, is_correct, errors at top level
+                const model = modelNames[0];
+                modelResults = [{
+                    model,
+                    score: result.score !== undefined ? result.score : 0,
+                    isCorrect: result.is_correct === true,
+                    errors: Array.isArray(result.errors) ? result.errors : [],
+                    toolCalls: Array.isArray(toolCallsData) ? toolCallsData : [],
+                    color: '#00d9ff'
+                }];
+            } else {
+                // Comparison format: scores, is_correct, errors keyed by model name
+                const isCorrectMap = result.is_correct || {};
+                const errors = result.errors || {};
+
+                modelResults = modelNames.map((model, idx) => {
+                    if (Object.keys(scores).length > 0) {
+                        return {
+                            model,
+                            score: scores[model] ?? 0,
+                            isCorrect: isCorrectMap[model] ?? false,
+                            errors: errors[model] || [],
+                            toolCalls: toolCallsData[model] || [],
+                            color: idx === 0 ? '#00d9ff' : '#ff0080'
+                        };
+                    }
+                    // Old format with responses
+                    const resp = (result.responses || {})[model] || {};
                     return {
                         model,
-                        score: scores[model] ?? 0,
-                        isCorrect: isCorrectMap[model] ?? false,
-                        errors: errors[model] || [],
+                        score: resp.score || 0,
+                        isCorrect: (resp.score || 0) >= 100,
+                        errors: [],
+                        toolCalls: [],
+                        response: resp.response,
                         color: idx === 0 ? '#00d9ff' : '#ff0080'
                     };
-                }
-                // Old format with responses
-                const resp = responses[model] || {};
-                return {
-                    model,
-                    score: resp.score || 0,
-                    isCorrect: (resp.score || 0) >= 100,
-                    errors: [],
-                    response: resp.response,
-                    color: idx === 0 ? '#00d9ff' : '#ff0080'
-                };
-            });
+                });
+            }
 
             return `
                 <div class="result-accordion-item" onclick="this.classList.toggle('open')">
                     <div class="result-accordion-header">
                         <div class="result-accordion-title">
                             <span class="result-id">${result.test_id || `Test ${index + 1}`}</span>
-                            <span class="result-category">${result.category || 'general'}</span>
+                            <span class="result-category">${category}</span>
                             ${winnerBadge}
                         </div>
                         <span class="result-accordion-arrow">&#9660;</span>
@@ -1969,6 +2055,7 @@
                                             ${mr.score.toFixed(1)}% ${mr.isCorrect ? '(PASS)' : '(FAIL)'}
                                         </span>
                                     </div>
+                                    ${renderFuncToolCalls(mr.toolCalls, category)}
                                     ${mr.errors.length > 0 ? `
                                         <div class="func-errors" style="margin-top: 8px; padding: 10px; background: rgba(248, 81, 73, 0.1); border-radius: 6px; border-left: 3px solid var(--loss);">
                                             <div style="font-size: 11px; font-weight: 500; color: var(--loss); margin-bottom: 6px; text-transform: uppercase;">Errors</div>
@@ -1985,6 +2072,7 @@
                                 </div>
                             `).join('')}
                         </div>
+                        ${renderFuncExpected(groundTruth, expectedCalls, category)}
                         ${reasons.length > 0 ? `
                             <div class="judge-reasons">
                                 <div class="judge-reasons-title">Evaluation Notes</div>

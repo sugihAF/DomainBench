@@ -12,6 +12,7 @@ class ProviderType(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GEMINI = "gemini"
+    CEREBRAS = "cerebras"
     OLLAMA = "ollama"
     CUSTOM = "custom"
 
